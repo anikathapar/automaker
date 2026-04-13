@@ -1085,18 +1085,8 @@ const STORAGE_KEYS = {
 // Mock file system using localStorage
 const mockFileSystem: Record<string, string> = {};
 
-// Check if we're in Electron (for UI indicators only)
-export const isElectron = (): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  if (window.isElectron === true) {
-    return true;
-  }
-
-  return !!window.electronAPI?.isElectron;
-};
+/** Web-only build */
+export const isElectron = (): boolean => false;
 
 // Check if backend server is available
 let serverAvailable: boolean | null = null;

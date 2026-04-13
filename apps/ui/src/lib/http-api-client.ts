@@ -54,9 +54,6 @@ import { getGlobalFileBrowser } from '@/contexts/file-browser-context';
 const logger = createLogger('HttpClient');
 const NO_STORE_CACHE_MODE: RequestCache = 'no-store';
 
-// Cached server URL (set during initialization in Electron mode)
-let cachedServerUrl: string | null = null;
-
 /**
  * Notify the UI that the current session is no longer valid.
  * Used to redirect the user to a logged-out route on 401/403 responses.
@@ -166,40 +163,18 @@ export const handleServerOffline = (): void => {
   }, 2000);
 };
 
-/**
- * Initialize server URL from Electron IPC.
- * Must be called early in Electron mode before making API requests.
- */
+/** Reserved for future use; web builds use Vite proxy or VITE_SERVER_URL. */
 export const initServerUrl = async (): Promise<void> => {
-  const electron = typeof window !== 'undefined' ? window.electronAPI : null;
-  if (electron?.getServerUrl) {
-    try {
-      cachedServerUrl = await electron.getServerUrl();
-      logger.info('Server URL from Electron:', cachedServerUrl);
-    } catch (error) {
-      logger.warn('Failed to get server URL from Electron:', error);
-    }
-  }
+  /* no-op */
 };
 
-// Server URL - uses cached value from IPC or environment variable
 const getServerUrl = (): string => {
-  // Use cached URL from Electron IPC if available
-  if (cachedServerUrl) {
-    return cachedServerUrl;
-  }
-
   if (typeof window !== 'undefined') {
     const envUrl = import.meta.env.VITE_SERVER_URL;
     if (envUrl) return envUrl;
-
-    // In web mode (not Electron), use relative URL to leverage Vite proxy
-    // This avoids CORS issues since requests appear same-origin
-    if (!window.isElectron) {
-      return '';
-    }
+    // Relative URL leverages the Vite dev proxy (same-origin)
+    return '';
   }
-  // Use VITE_HOSTNAME if set, otherwise default to localhost
   const hostname = import.meta.env.VITE_HOSTNAME || 'localhost';
   return `http://${hostname}:3008`;
 };
@@ -278,43 +253,13 @@ export const clearSessionToken = (): void => {
   }
 };
 
-/**
- * Check if we're running in Electron mode
- */
-export const isElectronMode = (): boolean => {
-  if (typeof window === 'undefined') return false;
-
-  // Prefer a stable runtime marker from preload.
-  // In some dev/electron setups, method availability can be temporarily undefined
-  // during early startup, but `isElectron` remains reliable.
-  const api = window.electronAPI;
-  return api?.isElectron === true || !!api?.getApiKey;
-};
+/** @deprecated Web-only build; always false */
+export const isElectronMode = (): boolean => false;
 
 // Cached external server mode flag
 let cachedExternalServerMode: boolean | null = null;
 
-/**
- * Check if running in external server mode (Docker API)
- * In this mode, Electron uses session-based auth like web mode
- */
 export const checkExternalServerMode = async (): Promise<boolean> => {
-  if (cachedExternalServerMode !== null) {
-    return cachedExternalServerMode;
-  }
-
-  if (typeof window !== 'undefined') {
-    const api = window.electronAPI;
-    if (api?.isExternalServerMode) {
-      try {
-        cachedExternalServerMode = Boolean(await api.isExternalServerMode());
-        return cachedExternalServerMode;
-      } catch (error) {
-        logger.warn('Failed to check external server mode:', error);
-      }
-    }
-  }
-
   cachedExternalServerMode = false;
   return false;
 };
@@ -325,41 +270,17 @@ export const checkExternalServerMode = async (): Promise<boolean> => {
 export const isExternalServerMode = (): boolean | null => cachedExternalServerMode;
 
 /**
- * Initialize API key and server URL for Electron mode authentication.
- * In web mode, authentication uses HTTP-only cookies instead.
- *
- * This should be called early in app initialization.
+ * Initialize auth-related client state. Web builds use cookies / session token + Vite proxy.
  */
 export const initApiKey = async (): Promise<void> => {
-  // Return existing promise if already in progress
   if (apiKeyInitPromise) return apiKeyInitPromise;
-
-  // Return immediately if already initialized
   if (apiKeyInitialized) return;
 
-  // Create and store the promise so concurrent calls wait for the same initialization
   apiKeyInitPromise = (async () => {
     try {
-      // Initialize server URL from Electron IPC first (needed for API requests)
       await initServerUrl();
-
-      // Only Electron mode uses API key header auth
-      if (typeof window !== 'undefined' && window.electronAPI?.getApiKey) {
-        try {
-          cachedApiKey = await window.electronAPI.getApiKey();
-          if (cachedApiKey) {
-            logger.info('Using API key from Electron');
-            return;
-          }
-        } catch (error) {
-          logger.warn('Failed to get API key from Electron:', error);
-        }
-      }
-
-      // In web mode, authentication is handled via HTTP-only cookies
-      logger.info('Web mode - using cookie-based authentication');
+      logger.info('Using cookie/session authentication');
     } finally {
-      // Mark as initialized after completion, regardless of success or failure
       apiKeyInitialized = true;
     }
   })();
@@ -743,20 +664,7 @@ export class HttpApiClient implements ElectronAPI {
 
   constructor() {
     this.serverUrl = getServerUrl();
-    // Electron mode: connect WebSocket immediately once API key is ready.
-    // Web mode: defer WebSocket connection until a consumer subscribes to events,
-    // to avoid noisy 401s on first-load/login/setup routes.
-    if (isElectronMode()) {
-      waitForApiKeyInit()
-        .then(() => {
-          this.connectWebSocket();
-        })
-        .catch((error) => {
-          logger.error('API key initialization failed:', error);
-          // Still attempt WebSocket connection - it may work with cookie auth
-          this.connectWebSocket();
-        });
-    }
+    // Defer WebSocket connection until a consumer subscribes (avoids 401s on login/setup).
 
     // OPTIMIZATION: Reconnect WebSocket immediately when tab becomes visible
     // This eliminates the reconnection delay after tab discard/background
@@ -854,38 +762,6 @@ export class HttpApiClient implements ElectronAPI {
   }
 
   private doConnectWebSocketInternal(options?: { silent?: boolean }): void {
-    // Electron mode typically authenticates with the injected API key.
-    // However, in external-server/cookie-auth flows, the API key may be unavailable.
-    // In that case, fall back to the same wsToken/cookie authentication used in web mode
-    // so the UI still receives real-time events (running tasks, logs, etc.).
-    if (isElectronMode()) {
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        logger.warn('Electron mode: API key missing, attempting wsToken/cookie auth for WebSocket');
-        this.fetchWsToken(options)
-          .then((wsToken) => {
-            const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/api/events';
-            if (wsToken) {
-              this.establishWebSocket(`${wsUrl}?wsToken=${encodeURIComponent(wsToken)}`);
-            } else {
-              // Fallback: try connecting without token (will fail if not authenticated)
-              logger.warn('No wsToken available, attempting WebSocket connection anyway');
-              this.establishWebSocket(wsUrl);
-            }
-          })
-          .catch((error) => {
-            logger.error('Failed to prepare WebSocket connection (electron fallback):', error);
-            this.isConnecting = false;
-          });
-        return;
-      }
-
-      const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/api/events';
-      this.establishWebSocket(`${wsUrl}?apiKey=${encodeURIComponent(apiKey)}`);
-      return;
-    }
-
-    // In web mode, fetch a short-lived wsToken first
     this.fetchWsToken(options)
       .then((wsToken) => {
         const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/api/events';

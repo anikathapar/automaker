@@ -113,8 +113,6 @@ export default defineConfig({
               // Must set AUTOMAKER_SERVER_PORT so Vite proxy forwards to the correct backend port
               AUTOMAKER_SERVER_PORT: String(serverPort),
               VITE_SKIP_SETUP: 'true',
-              // Always skip electron plugin during tests - prevents duplicate server spawning
-              VITE_SKIP_ELECTRON: 'true',
               // Clear VITE_SERVER_URL to force the frontend to use the Vite proxy (/api)
               // instead of calling the backend directly. Direct calls bypass the proxy and
               // cause cookie domain mismatches (cookies are bound to 127.0.0.1 but

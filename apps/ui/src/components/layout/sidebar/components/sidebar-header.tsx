@@ -3,11 +3,10 @@ import { useNavigate } from '@tanstack/react-router';
 import { ChevronsUpDown, Folder, Plus, FolderOpen, LogOut } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { cn, isMac } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { formatShortcut } from '@/store/app-store';
-import { isElectron, type Project } from '@/lib/electron';
+import type { Project } from '@/lib/electron';
 import { initializeProject } from '@/lib/project-init';
-import { MACOS_ELECTRON_TOP_PADDING_CLASS } from '../constants';
 import { getAuthenticatedImageUrl } from '@/lib/api-fetch';
 import { useAppStore } from '@/store/app-store';
 import {
@@ -109,10 +108,7 @@ export function SidebarHeader({
   if (!sidebarOpen) {
     return (
       <div
-        className={cn(
-          'shrink-0 flex flex-col items-center relative px-2 pt-3 pb-2',
-          isMac && isElectron() && MACOS_ELECTRON_TOP_PADDING_CLASS
-        )}
+        className="shrink-0 flex flex-col items-center relative px-2 pt-3 pb-2"
       >
         <Tooltip>
           <TooltipTrigger asChild>
@@ -275,12 +271,7 @@ export function SidebarHeader({
 
   // Expanded state - show logo + project dropdown
   return (
-    <div
-      className={cn(
-        'shrink-0 flex flex-col relative px-3 pt-3 pb-2',
-        isMac && isElectron() && MACOS_ELECTRON_TOP_PADDING_CLASS
-      )}
-    >
+    <div className="shrink-0 flex flex-col relative px-3 pt-3 pb-2">
       {/* Header with logo and project dropdown */}
       <div className="flex items-center gap-3">
         {/* Logo */}

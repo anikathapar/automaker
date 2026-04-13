@@ -338,7 +338,7 @@ export function WikiView() {
           <CodeBlock title="Directory Structure">
             {`automaker/
 ├─ apps/
-│  ├─ ui/                                    Frontend (React + Electron)
+│  ├─ ui/                                    Frontend (React + Vite)
 │  │  └─ src/
 │  │     ├─ routes/                          TanStack Router pages
 │  │     ├─ components/
@@ -354,9 +354,7 @@ export function WikiView() {
 │  │     ├─ styles/                          CSS styles and theme definitions
 │  │     ├─ types/                           TypeScript type definitions
 │  │     ├─ utils/                           Utility functions
-│  │     ├─ main.ts                          Electron main process entry
-│  │     ├─ preload.ts                       Electron preload script
-│  │     └─ renderer.tsx                     React renderer entry
+│  │     └─ renderer.tsx                     React app entry
 │  │
 │  └─ server/                                Backend (Express)
 │     └─ src/

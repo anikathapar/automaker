@@ -13,8 +13,7 @@ import {
 import { useAppStore, getStoredTheme, type ThemeMode } from '@/store/app-store';
 import { useSetupStore } from '@/store/setup-store';
 import { useAuthStore } from '@/store/auth-store';
-import { getElectronAPI, isElectron } from '@/lib/electron';
-import { isMac } from '@/lib/utils';
+import { getElectronAPI } from '@/lib/electron';
 import { initializeProject } from '@/lib/project-init';
 import {
   initApiKey,
@@ -386,23 +385,7 @@ function RootLayoutContent() {
 
   // Handle sandbox risk denial
   const handleSandboxDeny = useCallback(async () => {
-    if (isElectron()) {
-      // In Electron mode, quit the application
-      // Use window.electronAPI directly since getElectronAPI() returns the HTTP client
-      try {
-        const electronAPI = window.electronAPI;
-        if (electronAPI?.quit) {
-          await electronAPI.quit();
-        } else {
-          logger.error('quit() not available on electronAPI');
-        }
-      } catch (error) {
-        logger.error('Failed to quit app:', error);
-      }
-    } else {
-      // In web mode, show rejection screen
-      setSandboxStatus('denied');
-    }
+    setSandboxStatus('denied');
   }, []);
 
   // Ref to prevent concurrent auth checks from running
@@ -898,21 +881,13 @@ function RootLayoutContent() {
     // Optimistically mark connected — if the server is truly down, the next API call
     // (triggered by the background verify) will surface the error.
     const { authChecked: alreadyChecked, isAuthenticated: alreadyAuthed } = useAuthStore.getState();
-    if (!isElectron() && alreadyChecked && alreadyAuthed) {
+    if (alreadyChecked && alreadyAuthed) {
       setIpcConnected(true);
       return;
     }
 
     const testConnection = async () => {
       try {
-        if (isElectron()) {
-          const api = getElectronAPI();
-          const result = await api.ping();
-          setIpcConnected(result === 'pong');
-          return;
-        }
-
-        // Web mode: check backend availability without instantiating the full HTTP client
         const response = await fetch(`${getServerUrlSync()}/api/health`, {
           method: 'GET',
           signal: AbortSignal.timeout(2000),
@@ -1160,13 +1135,6 @@ function RootLayoutContent() {
   return (
     <>
       <main className="flex h-full overflow-hidden" data-testid="app-container">
-        {/* Full-width titlebar drag region for Electron window dragging */}
-        {isElectron() && (
-          <div
-            className={`fixed top-0 left-0 right-0 h-6 titlebar-drag-region z-40 pointer-events-none ${isMac ? 'pl-20' : ''}`}
-            aria-hidden="true"
-          />
-        )}
         {/* Discord-style layout: narrow project switcher + expandable sidebar */}
         {sidebarStyle === 'discord' && <ProjectSwitcher />}
         <Sidebar />
