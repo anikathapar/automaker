@@ -21,6 +21,7 @@
     "dev:server": "npm run build:packages && npm run _dev:server",
     "dev:docker": "docker compose up",
     "dev:docker:rebuild": "docker compose build --no-cache && docker compose up",
+    "docker:build:web": "docker build --target web -t automaker-web .",
     "dev:full": "npm run dev",
     "build:production-web": "npm run build:packages && npm run build --workspace=apps/server && npm run build --workspace=apps/ui",
     "build": "npm run build:packages && npm run build --workspace=apps/ui",

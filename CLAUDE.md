@@ -10,16 +10,16 @@ Automaker is an autonomous AI development studio built as an npm workspace monor
 
 ```bash
 # Development
-npm run dev                 # Interactive launcher (choose web or electron)
-npm run dev:web             # Web browser mode (localhost:3007)
-npm run dev:electron        # Desktop app mode
-npm run dev:electron:debug  # Desktop with DevTools open
+npm run dev                 # Web UI (Vite) + API server (localhost:3007 / 3008)
+npm run dev:web             # Same UI dev server (workspace script)
+npm run dev:docker          # UI + API in Docker (see docker-compose.yml)
 
 # Building
-npm run build               # Build web application
+npm run build               # Build web application (static UI)
 npm run build:packages      # Build all shared packages (required before other builds)
-npm run build:electron      # Build desktop app for current platform
+npm run build:production-web # UI + server builds for production / npm start
 npm run build:server        # Build server only
+npm run docker:build:web    # Docker image: nginx + API for AWS (target `web`)
 
 # Testing
 npm run test                # E2E tests (Playwright, headless)
@@ -44,7 +44,7 @@ npm run format:check        # Prettier check
 ```
 automaker/
 ├── apps/
-│   ├── ui/           # React + Vite + Electron frontend (port 3007)
+│   ├── ui/           # React + Vite frontend (port 3007)
 │   └── server/       # Express + WebSocket backend (port 3008)
 └── libs/             # Shared packages (@automaker/*)
     ├── types/        # Core TypeScript definitions (no dependencies)
@@ -72,7 +72,7 @@ Packages can only depend on packages above them:
 
 ### Key Technologies
 
-- **Frontend**: React 19, Vite 7, Electron 39, TanStack Router, Zustand 5, Tailwind CSS 4
+- **Frontend**: React 19, Vite 7, TanStack Router, Zustand 5, Tailwind CSS 4
 - **Backend**: Express 5, WebSocket (ws), Claude Agent SDK, node-pty
 - **Testing**: Playwright (E2E), Vitest (unit)
 

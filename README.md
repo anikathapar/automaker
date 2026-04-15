@@ -58,7 +58,7 @@
 
 </details>
 
-Automaker is an autonomous AI development studio that transforms how you build software. Instead of manually writing every line of code, you describe features on a Kanban board and watch as AI agents powered by Claude Agent SDK automatically implement them. Built with React, Vite, Electron, and Express, Automaker provides a complete workflow for managing AI agents through a desktop application (or web browser), with features like real-time streaming, git worktree isolation, plan approval, and multi-agent task execution.
+Automaker is an autonomous AI development studio that transforms how you build software. Instead of manually writing every line of code, you describe features on a Kanban board and watch as AI agents powered by Claude Agent SDK automatically implement them. Built with React, Vite, and Express, Automaker is a **web application** (browser UI plus API server) with features like real-time streaming, git worktree isolation, plan approval, and multi-agent task execution. You can run it locally, in Docker, or ship the same stack to **AWS** using the all-in-one container image described below.
 
 ![Automaker UI](https://i.imgur.com/jdwKydM.png)
 
@@ -116,11 +116,9 @@ cd automaker
 # 2. Install dependencies
 npm install
 
-# 3. Start Automaker
+# 3. Start Automaker (web UI + API)
 npm run dev
-# Choose between:
-#   1. Web Application (browser at localhost:3007)
-#   2. Desktop Application (Electron - recommended)
+# Opens the stack used in production: Vite on http://localhost:3007 and the API on port 3008.
 ```
 
 **Authentication:** Automaker integrates with your authenticated Claude Code CLI. Make sure you have [installed and authenticated](https://code.claude.com/docs/en/quickstart) the Claude Code CLI before running Automaker. Your CLI credentials will be detected automatically.
@@ -137,106 +135,52 @@ Start Automaker in development mode:
 npm run dev
 ```
 
-This will prompt you to choose your run mode, or you can specify a mode directly:
-
-#### Electron Desktop App (Recommended)
+The dev script builds shared packages, then runs the UI and API together (same as production architecture).
 
 ```bash
-# Standard development mode
-npm run dev:electron
-
-# With DevTools open automatically
-npm run dev:electron:debug
-
-# For WSL (Windows Subsystem for Linux)
-npm run dev:electron:wsl
-
-# For WSL with GPU acceleration
-npm run dev:electron:wsl:gpu
+# Web UI at http://localhost:3007 (API proxied under /api in dev)
+npm run dev
 ```
 
-#### Web Browser Mode
+### Shell entry point
+
+`./start-automaker.sh` is a thin wrapper around npm (same as `npm run dev` or `npm start`):
 
 ```bash
-# Run in web browser (http://localhost:3007)
-npm run dev:web
+./start-automaker.sh               # Web app + API (development)
+./start-automaker.sh --production  # Production build, then API + UI preview
 ```
-
-### Interactive TUI Launcher (Recommended for New Users)
-
-For a user-friendly interactive menu, use the built-in TUI launcher script:
-
-```bash
-# Show interactive menu with all launch options
-./start-automaker.sh
-
-# Or launch directly without menu
-./start-automaker.sh web          # Web browser
-./start-automaker.sh electron     # Desktop app
-./start-automaker.sh electron-debug  # Desktop + DevTools
-
-# Additional options
-./start-automaker.sh --help       # Show all available options
-./start-automaker.sh --version    # Show version information
-./start-automaker.sh --check-deps # Verify project dependencies
-./start-automaker.sh --no-colors  # Disable colored output
-./start-automaker.sh --no-history # Don't remember last choice
-```
-
-**Features:**
-
-- 🎨 Beautiful terminal UI with gradient colors and ASCII art
-- ⌨️ Interactive menu (press 1-3 to select, Q to exit)
-- 💾 Remembers your last choice
-- ✅ Pre-flight checks (validates Node.js, npm, dependencies)
-- 📏 Responsive layout (adapts to terminal size)
-- ⏱️ 30-second timeout for hands-free selection
-- 🌐 Cross-shell compatible (bash/zsh)
-
-**History File:**
-Your last selected mode is saved in `~/.automaker_launcher_history` for quick re-runs.
 
 ### Building for Production
 
-#### Web Application
+#### Web application
 
 ```bash
-# Build for web deployment (uses Vite)
+# UI only (Vite static assets — still needs the API in production)
 npm run build
+
+# UI + API production artifacts (used by npm start)
+npm run build:production-web
 ```
 
-#### Desktop Application
+#### Deploy on AWS (single container)
+
+The Docker target **`web`** bundles nginx (static UI on port **8080**) and the Node API on **3008** behind the same origin (`/api/...` is proxied). This matches what AWS App Runner, ECS/Fargate, or Elastic Beanstalk expect for one service per task.
 
 ```bash
-# Build for current platform (macOS/Windows/Linux)
-npm run build:electron
+# Build the image
+npm run docker:build:web
 
-# Platform-specific builds
-npm run build:electron:mac     # macOS (DMG + ZIP, x64 + arm64)
-npm run build:electron:win     # Windows (NSIS installer, x64)
-npm run build:electron:linux   # Linux (AppImage + DEB + RPM, x64)
-
-# Output directory: apps/ui/release/
+# Run locally (set secrets as appropriate)
+docker run --rm -p 8080:8080 \
+  -e ANTHROPIC_API_KEY="your-key" \
+  -e AUTOMAKER_API_KEY="optional-shared-secret" \
+  automaker-web
 ```
 
-**Linux Distribution Packages:**
+Then open **http://localhost:8080**. In AWS, point your service’s container port to **8080**, pass the same environment variables (for example from Secrets Manager or SSM), and mount or configure persistent storage for **`DATA_DIR`** (default `/data` in the image) if you need sessions and settings to survive restarts.
 
-- **AppImage**: Universal format, works on any Linux distribution
-- **DEB**: Ubuntu, Debian, Linux Mint, Pop!\_OS
-- **RPM**: Fedora, RHEL, Rocky Linux, AlmaLinux, openSUSE
-
-**Installing on Fedora/RHEL:**
-
-```bash
-# Download the RPM package
-wget https://github.com/AutoMaker-Org/automaker/releases/latest/download/Automaker-<version>-x86_64.rpm
-
-# Install with dnf (Fedora)
-sudo dnf install ./Automaker-<version>-x86_64.rpm
-
-# Or with yum (RHEL/CentOS)
-sudo yum localinstall ./Automaker-<version>-x86_64.rpm
-```
+For local development with **separate** UI and API containers, keep using `docker compose up` as documented in `docker-compose.yml`.
 
 #### Docker Deployment
 
@@ -447,8 +391,7 @@ npm run lint
 
 #### Optional - Development
 
-- `VITE_SKIP_ELECTRON` - Skip Electron in dev mode
-- `OPEN_DEVTOOLS` - Auto-open DevTools in Electron
+- `VITE_SKIP_ELECTRON` - Legacy flag for browser-only UI builds (Docker / CI)
 - `AUTOMAKER_SKIP_SANDBOX_WARNING` - Skip sandbox warning dialog (useful for dev/CI)
 - `AUTOMAKER_AUTO_LOGIN=true` - Skip login prompt in development (ignored when NODE_ENV=production)
 
@@ -502,8 +445,7 @@ Once authenticated, Automaker will automatically detect and use your CLI credent
 - ⚡ **Concurrent Execution** - Configure how many features can run simultaneously (default: 3)
 - ⌨️ **Keyboard Shortcuts** - Fully customizable shortcuts for navigation and actions
 - 🎨 **Theme System** - 25+ themes including Dark, Light, Dracula, Nord, Catppuccin, and more
-- 🖥️ **Cross-Platform** - Desktop app for macOS (x64, arm64), Windows (x64), and Linux (x64)
-- 🌐 **Web Mode** - Run in browser or as Electron desktop app
+- 🌐 **Web application** - Runs in the browser with the API on the same origin in production (see Docker `web` target)
 
 ### Advanced Features
 
@@ -519,7 +461,6 @@ Once authenticated, Automaker will automatically detect and use your CLI credent
 
 - **React 19** - UI framework
 - **Vite 7** - Build tool and development server
-- **Electron 39** - Desktop application framework
 - **TypeScript 5.9** - Type safety
 - **TanStack Router** - File-based routing
 - **Zustand 5** - State management with persistence
@@ -596,7 +537,7 @@ Automaker is built as an npm workspace monorepo with two main applications and s
 ```text
 automaker/
 ├── apps/
-│   ├── ui/          # React + Vite + Electron frontend
+│   ├── ui/          # React + Vite frontend
 │   └── server/      # Express + WebSocket backend
 └── libs/            # Shared packages
     ├── types/                  # Core TypeScript definitions

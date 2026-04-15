@@ -166,9 +166,10 @@ RUN git config --system --add safe.directory '*' && \
     # Use gh as credential helper (works with GH_TOKEN env var)
     git config --system credential.helper '!gh auth git-credential'
 
-# Copy entrypoint script for fixing permissions on mounted volumes
+# Copy entrypoint scripts for fixing permissions on mounted volumes
+COPY docker-entrypoint-setup.sh /usr/local/bin/docker-entrypoint-setup.sh
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-setup.sh /usr/local/bin/docker-entrypoint.sh
 
 # Note: We stay as root here so entrypoint can fix permissions
 # The entrypoint script will switch to automaker user before running the command
@@ -216,6 +217,27 @@ ARG VITE_SERVER_URL=
 ENV VITE_SKIP_ELECTRON=true
 ENV VITE_SERVER_URL=${VITE_SERVER_URL}
 RUN npm run build:packages && npm run build --workspace=apps/ui
+
+# =============================================================================
+# ALL-IN-ONE WEB (nginx + API) — AWS App Runner, ECS/Fargate, EC2, single ALB target
+# Serves the Vite build on port 8080 and proxies /api/* to the API on localhost:3008.
+# =============================================================================
+FROM server AS web
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends nginx \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ui-builder /app/apps/ui/dist /usr/share/nginx/html
+COPY apps/ui/nginx.web.conf /etc/nginx/sites-available/default
+
+COPY docker-web-entrypoint.sh /usr/local/bin/docker-web-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-web-entrypoint.sh
+
+EXPOSE 8080 3008
+
+ENTRYPOINT ["/usr/local/bin/docker-web-entrypoint.sh"]
+CMD []
 
 # =============================================================================
 # UI PRODUCTION STAGE
