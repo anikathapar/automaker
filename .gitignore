@@ -114,3 +114,8 @@ data/
 .mcp.json
 .planning
 .bg-shell/
+
+# amplify
+.amplify
+amplify_outputs*
+amplifyconfiguration*
