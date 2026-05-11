@@ -47,6 +47,7 @@ import {
   logError,
   logger,
 } from './validation-common.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { SettingsService } from '../../../services/settings-service.js';
 
 /**
@@ -307,10 +308,12 @@ ${basePrompt}`;
  */
 export function createValidateIssueHandler(
   events: EventEmitter,
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const scopedSettingsService = resolveSettingsService?.(req);
+
       const {
         projectPath,
         issueNumber,
@@ -413,7 +416,7 @@ export function createValidateIssueHandler(
         model,
         events,
         abortController,
-        settingsService,
+        scopedSettingsService,
         normalizedProviderId,
         validationComments,
         validationLinkedPRs,

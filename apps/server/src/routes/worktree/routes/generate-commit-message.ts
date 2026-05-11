@@ -15,6 +15,7 @@ import { isCursorModel, stripProviderPrefix } from '@automaker/types';
 import { resolvePhaseModel } from '@automaker/model-resolver';
 import { mergeCommitMessagePrompts } from '@automaker/prompts';
 import { ProviderFactory } from '../../../providers/provider-factory.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { SettingsService } from '../../../services/settings-service.js';
 import { getErrorMessage, logError } from '../common.js';
 import { getPhaseModelWithOverrides } from '../../../lib/settings-helpers.js';
@@ -94,10 +95,12 @@ interface GenerateCommitMessageErrorResponse {
 }
 
 export function createGenerateCommitMessageHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { worktreePath } = req.body as GenerateCommitMessageRequestBody;
 
       if (!worktreePath || typeof worktreePath !== 'string') {

@@ -9,16 +9,18 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getDevServerService } from '../../../services/dev-server-service.js';
 import { getErrorMessage, logError } from '../common.js';
 import { createLogger } from '@automaker/utils';
 
 const logger = createLogger('start-dev');
 
-export function createStartDevHandler(settingsService?: SettingsService) {
+export function createStartDevHandler(resolveSettingsService?: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { projectPath, worktreePath } = req.body as {
         projectPath: string;
         worktreePath: string;

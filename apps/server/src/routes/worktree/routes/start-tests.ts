@@ -6,13 +6,22 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getTestRunnerService } from '../../../services/test-runner-service.js';
 import { getErrorMessage, logError } from '../common.js';
 
-export function createStartTestsHandler(settingsService?: SettingsService) {
+export function createStartTestsHandler(resolveSettingsService?: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      if (!resolveSettingsService) {
+        res.status(500).json({
+          success: false,
+          error: 'Settings service not available',
+        });
+        return;
+      }
+      const settingsService = resolveSettingsService(req);
+
       const body = req.body;
 
       // Validate request body
@@ -39,14 +48,6 @@ export function createStartTestsHandler(settingsService?: SettingsService) {
       // Get project settings to find the test command
       // Use projectPath if provided, otherwise use worktreePath
       const settingsPath = projectPath || worktreePath;
-
-      if (!settingsService) {
-        res.status(500).json({
-          success: false,
-          error: 'Settings service not available',
-        });
-        return;
-      }
 
       const projectSettings = await settingsService.getProjectSettings(settingsPath);
       const testCommand = projectSettings?.testCommand;

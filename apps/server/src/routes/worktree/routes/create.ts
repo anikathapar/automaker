@@ -14,7 +14,7 @@ import { promisify } from 'util';
 import path from 'path';
 import * as secureFs from '../../../lib/secure-fs.js';
 import type { EventEmitter } from '../../../lib/events.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { WorktreeService } from '../../../services/worktree-service.js';
 import { isGitRepo } from '@automaker/git-utils';
 import {
@@ -91,11 +91,16 @@ async function findExistingWorktreeForBranch(
   }
 }
 
-export function createCreateHandler(events: EventEmitter, settingsService?: SettingsService) {
+export function createCreateHandler(
+  events: EventEmitter,
+  resolveSettingsService?: SettingsServiceFactory
+) {
   const worktreeService = new WorktreeService();
 
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { projectPath, branchName, baseBranch } = req.body as {
         projectPath: string;
         branchName: string;

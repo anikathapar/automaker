@@ -1,20 +1,22 @@
 import { Router, Request, Response } from 'express';
 import { ZaiUsageService } from '../../services/zai-usage-service.js';
 import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import { createLogger } from '@automaker/utils';
 
 const logger = createLogger('Zai');
 
 export function createZaiRoutes(
   usageService: ZaiUsageService,
-  settingsService: SettingsService
+  globalSettingsService: SettingsService,
+  resolveSettingsService: SettingsServiceFactory
 ): Router {
   const router = Router();
 
   // Initialize z.ai API token from credentials on startup
   (async () => {
     try {
-      const credentials = await settingsService.getCredentials();
+      const credentials = await globalSettingsService.getCredentials();
       if (credentials.apiKeys?.zai) {
         usageService.setApiToken(credentials.apiKeys.zai);
         logger.info('[init] Loaded z.ai API key from credentials');
@@ -108,7 +110,7 @@ export function createZaiRoutes(
 
       const result = await usageService.configure(
         { apiToken: sanitizedToken, apiHost: sanitizedHost },
-        settingsService
+        resolveSettingsService(req)
       );
       res.json(result);
     } catch (error) {

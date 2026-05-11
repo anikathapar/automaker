@@ -11,14 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card';
 import { Bell, Check, CheckCheck, Trash2, ExternalLink, AlertCircle } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
-import { useNavigate } from '@tanstack/react-router';
+import { router } from '@/utils/router';
 import type { Notification } from '@automaker/types';
 import { formatRelativeTime } from '@/lib/utils';
 
 export function NotificationsView() {
   const { currentProject } = useAppStore();
   const projectPath = currentProject?.path ?? null;
-  const navigate = useNavigate();
 
   const {
     notifications,
@@ -95,7 +94,7 @@ export function NotificationsView() {
       // Navigate to the relevant view based on notification type
       if (notification.featureId) {
         // Navigate to board view with feature ID and project path to show output
-        navigate({
+        void router.navigate({
           to: '/board',
           search: {
             featureId: notification.featureId,
@@ -104,7 +103,7 @@ export function NotificationsView() {
         });
       }
     },
-    [handleMarkAsRead, navigate]
+    [handleMarkAsRead]
   );
 
   const getNotificationIcon = (type: string) => {

@@ -14,7 +14,7 @@ import type {
   RunningAgentInfo,
   ProjectAutoModeStatus,
 } from '../../../services/auto-mode/index.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { NotificationService } from '../../../services/notification-service.js';
 import type {
   ProjectStatus,
@@ -152,11 +152,12 @@ function getLastActivityAt(features: Feature[]): string | undefined {
 export function createOverviewHandler(
   featureLoader: FeatureLoader,
   autoModeService: AutoModeServiceCompat,
-  settingsService: SettingsService,
+  resolveSettingsService: SettingsServiceFactory,
   notificationService: NotificationService
 ) {
-  return async (_req: Request, res: Response): Promise<void> => {
+  return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
       // Get all projects from settings
       const settings = await settingsService.getGlobalSettings();
       const projectRefs: ProjectRef[] = settings.projects || [];

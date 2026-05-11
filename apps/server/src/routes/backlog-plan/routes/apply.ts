@@ -6,7 +6,7 @@ import type { Request, Response } from 'express';
 import { resolvePhaseModel } from '@automaker/model-resolver';
 import type { BacklogPlanResult, PhaseModelEntry, PlanningMode } from '@automaker/types';
 import { FeatureLoader } from '../../../services/feature-loader.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { clearBacklogPlan, getErrorMessage, logError, logger } from '../common.js';
 
 const featureLoader = new FeatureLoader();
@@ -19,9 +19,11 @@ function normalizePhaseModelEntry(
   return entry;
 }
 
-export function createApplyHandler(settingsService?: SettingsService) {
+export function createApplyHandler(resolveSettingsService?: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const {
         projectPath,
         plan,

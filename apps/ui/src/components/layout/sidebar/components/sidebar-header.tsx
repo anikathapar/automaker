@@ -1,5 +1,5 @@
 import { useState, useCallback, startTransition } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import type { NavigateOptions } from '@tanstack/react-router';
 import { ChevronsUpDown, Folder, Plus, FolderOpen, LogOut } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { router } from '@/utils/router';
 
 interface SidebarHeaderProps {
   sidebarOpen: boolean;
@@ -35,7 +36,9 @@ export function SidebarHeader({
   onProjectContextMenu,
   setShowRemoveFromAutomakerDialog,
 }: SidebarHeaderProps) {
-  const navigate = useNavigate();
+  const navigate = useCallback((opts: NavigateOptions) => {
+    void router.navigate(opts);
+  }, []);
   const projects = useAppStore((s) => s.projects);
   const setCurrentProject = useAppStore((s) => s.setCurrentProject);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -107,9 +110,7 @@ export function SidebarHeader({
   // Collapsed state - show logo only
   if (!sidebarOpen) {
     return (
-      <div
-        className="shrink-0 flex flex-col items-center relative px-2 pt-3 pb-2"
-      >
+      <div className="shrink-0 flex flex-col items-center relative px-2 pt-3 pb-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <button

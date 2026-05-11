@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
+import { useAuthStore } from '@/store/auth-store';
 import { createLogger } from '@automaker/utils/logger';
-import { useNavigate } from '@tanstack/react-router';
 import { useAppStore } from '@/store/app-store';
 import { useOSDetection } from '@/hooks/use-os-detection';
 import { getElectronAPI, isElectron } from '@/lib/electron';
 import { initializeProject } from '@/lib/project-init';
-import { getHttpApiClient } from '@/lib/http-api-client';
+import { clearSessionToken, getHttpApiClient, logout } from '@/lib/http-api-client';
 import { isMac } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import {
   Search,
   X,
   LayoutDashboard,
+  LogOut,
   type LucideIcon,
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
@@ -45,6 +46,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { router } from '@/utils/router';
 
 const logger = createLogger('DashboardView');
 
@@ -69,7 +71,6 @@ function getIconComponent(iconName?: string): LucideIcon {
 }
 
 export function DashboardView() {
-  const navigate = useNavigate();
   const { os } = useOSDetection();
   const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
   const appMode = import.meta.env.VITE_APP_MODE || '?';
@@ -90,6 +91,20 @@ export function DashboardView() {
   const [isOpening, setIsOpening] = useState(false);
   const [projectToRemove, setProjectToRemove] = useState<{ id: string; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = useCallback(async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      clearSessionToken();
+      useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
+      void router.navigate({ to: '/login', replace: true });
+    } catch (error) {
+      logger.error('[Dashboard] Logout failed:', error);
+      setIsLoggingOut(false);
+    }
+  }, []);
 
   // Sort projects: favorites first, then by last opened
   const sortedProjects = [...projects].sort((a, b) => {
@@ -148,7 +163,7 @@ export function DashboardView() {
           description: `Opened ${name}`,
         });
 
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('[Dashboard] Failed to open project:', error);
         toast.error('Failed to open project', {
@@ -158,7 +173,7 @@ export function DashboardView() {
         setIsOpening(false);
       }
     },
-    [projects, upsertAndSetCurrentProject, navigate, moveProjectToTrash]
+    [projects, upsertAndSetCurrentProject, moveProjectToTrash]
   );
 
   const handleOpenProject = useCallback(async () => {
@@ -237,7 +252,7 @@ export function DashboardView() {
   };
 
   const handleInteractiveMode = () => {
-    navigate({ to: '/interview' });
+    void router.navigate({ to: '/interview' });
   };
 
   const handleCreateBlankProject = async (projectName: string, parentDir: string) => {
@@ -317,7 +332,7 @@ export function DashboardView() {
         description: `Created ${projectName}`,
       });
 
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
     } catch (error) {
       logger.error('Failed to create project:', error);
       toast.error('Failed to create project', {
@@ -398,7 +413,7 @@ export function DashboardView() {
         description: `Created ${projectName} from ${template.name}`,
       });
 
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
     } catch (error) {
       logger.error('Failed to create project from template:', error);
       toast.error('Failed to create project', {
@@ -475,7 +490,7 @@ export function DashboardView() {
         description: `Created ${projectName}`,
       });
 
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
     } catch (error) {
       logger.error('Failed to create project from custom URL:', error);
       toast.error('Failed to create project', {
@@ -502,7 +517,7 @@ export function DashboardView() {
         <div className="px-4 sm:px-8 py-4 flex items-center justify-between">
           <div
             className="flex items-center gap-2 sm:gap-3 cursor-pointer group titlebar-no-drag"
-            onClick={() => navigate({ to: '/dashboard' })}
+            onClick={() => void router.navigate({ to: '/dashboard' })}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -557,61 +572,85 @@ export function DashboardView() {
             </div>
           </div>
 
-          {/* Projects Overview button */}
-          {hasProjects && (
+          <div className="flex items-center gap-2 titlebar-no-drag">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate({ to: '/overview' })}
-              className="hidden sm:flex gap-2 titlebar-no-drag"
-              data-testid="projects-overview-button"
+              onClick={() => void handleLogout()}
+              disabled={isLoggingOut}
+              className="hidden sm:inline-flex gap-2"
+              data-testid="dashboard-logout-button"
             >
-              <LayoutDashboard className="w-4 h-4" />
-              Overview
+              <LogOut className="w-4 h-4" />
+              {isLoggingOut ? 'Logging out…' : 'Log out'}
             </Button>
-          )}
+            {/* Projects Overview button */}
+            {hasProjects && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void router.navigate({ to: '/overview' })}
+                className="hidden sm:inline-flex gap-2"
+                data-testid="projects-overview-button"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Overview
+              </Button>
+            )}
 
-          {/* Mobile action buttons in header */}
-          {hasProjects && (
-            <div className="flex sm:hidden gap-2 titlebar-no-drag">
+            <div className="flex sm:hidden gap-2">
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => navigate({ to: '/overview' })}
-                title="Projects Overview"
-                data-testid="projects-overview-button-mobile"
+                onClick={() => void handleLogout()}
+                disabled={isLoggingOut}
+                title="Log out"
+                data-testid="dashboard-logout-button-mobile"
               >
-                <LayoutDashboard className="w-4 h-4" />
+                <LogOut className="w-4 h-4" />
               </Button>
-              <Button variant="outline" size="icon" onClick={handleOpenProject}>
-                <FolderOpen className="w-4 h-4" />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+              {hasProjects && (
+                <>
                   <Button
+                    variant="outline"
                     size="icon"
-                    className="bg-linear-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white"
-                    data-testid="create-new-project-mobile"
+                    onClick={() => void router.navigate({ to: '/overview' })}
+                    title="Projects Overview"
+                    data-testid="projects-overview-button-mobile"
                   >
-                    <Plus className="w-4 h-4" />
+                    <LayoutDashboard className="w-4 h-4" />
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem
-                    onClick={handleNewProject}
-                    data-testid="quick-setup-option-mobile"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Quick Setup
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleInteractiveMode}>
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Interactive Mode
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  <Button variant="outline" size="icon" onClick={handleOpenProject}>
+                    <FolderOpen className="w-4 h-4" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon"
+                        className="bg-linear-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white"
+                        data-testid="create-new-project-mobile"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem
+                        onClick={handleNewProject}
+                        data-testid="quick-setup-option-mobile"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Quick Setup
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleInteractiveMode}>
+                        <MessageSquare className="w-4 h-4 mr-2" />
+                        Interactive Mode
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </header>
 

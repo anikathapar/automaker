@@ -275,12 +275,19 @@ export async function apiListBranches(
 // Authentication Utilities
 // ============================================================================
 
+/** Default web login for E2E (matches `tests/.e2e-server-data/users.json` when using Playwright DATA_DIR). */
+export const E2E_DEFAULT_WEB_USERNAME = 'e2e';
+export const E2E_DEFAULT_WEB_PASSWORD = 'e2e-test-password';
+
 /**
- * Authenticate with the server using an API key
- * This sets a session cookie that will be used for subsequent requests
- * Uses browser context to ensure cookies are properly set
+ * Authenticate with the server using web username/password (`users.json` on the server).
+ * Sets a session cookie for subsequent requests (browser context).
  */
-export async function authenticateWithApiKey(page: Page, apiKey: string): Promise<boolean> {
+export async function authenticateWithWebCredentials(
+  page: Page,
+  username: string,
+  password: string
+): Promise<boolean> {
   try {
     // Fast path: check if we already have a valid session (from global setup storageState)
     try {
@@ -323,7 +330,7 @@ export async function authenticateWithApiKey(page: Page, apiKey: string): Promis
     // Use Playwright request API (tied to this browser context) to avoid flakiness
     // with cross-origin fetch inside page.evaluate.
     const loginResponse = await page.request.post(`${API_BASE_URL}/api/auth/login`, {
-      data: { apiKey },
+      data: { username, password },
       headers: { 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -365,13 +372,13 @@ export async function authenticateWithApiKey(page: Page, apiKey: string): Promis
 }
 
 /**
- * Authenticate using the API key from environment variable
- * Falls back to a test default if AUTOMAKER_API_KEY is not set
+ * Authenticate using web credentials from the environment, or the default E2E user.
+ * With Playwright-managed server, `DATA_DIR` is `tests/.e2e-server-data` (see playwright.config).
  */
 export async function authenticateForTests(page: Page): Promise<boolean> {
-  // Use the API key from environment, or a test default
-  const apiKey = process.env.AUTOMAKER_API_KEY || 'test-api-key-for-e2e-tests';
-  return authenticateWithApiKey(page, apiKey);
+  const username = process.env.E2E_WEB_USERNAME || E2E_DEFAULT_WEB_USERNAME;
+  const password = process.env.E2E_WEB_PASSWORD || E2E_DEFAULT_WEB_PASSWORD;
+  return authenticateWithWebCredentials(page, username, password);
 }
 
 /**

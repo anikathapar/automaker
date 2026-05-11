@@ -8,19 +8,19 @@
 import { Router } from 'express';
 import { createDescribeImageHandler } from './routes/describe-image.js';
 import { createDescribeFileHandler } from './routes/describe-file.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 
 /**
  * Create the context router
  *
- * @param settingsService - Optional settings service for loading autoLoadClaudeMd setting
+ * @param resolveSettingsService - Per-request settings (scoped credentials when logged in)
  * @returns Express router with context endpoints
  */
-export function createContextRoutes(settingsService?: SettingsService): Router {
+export function createContextRoutes(resolveSettingsService?: SettingsServiceFactory): Router {
   const router = Router();
 
-  router.post('/describe-image', createDescribeImageHandler(settingsService));
-  router.post('/describe-file', createDescribeFileHandler(settingsService));
+  router.post('/describe-image', createDescribeImageHandler(resolveSettingsService));
+  router.post('/describe-file', createDescribeFileHandler(resolveSettingsService));
 
   return router;
 }

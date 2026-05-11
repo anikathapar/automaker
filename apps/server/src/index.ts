@@ -31,6 +31,8 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   debug: LogLevel.DEBUG,
 };
 import { authMiddleware, validateWsConnectionToken, checkRawAuthentication } from './lib/auth.js';
+import { albOidcSessionMiddleware } from './lib/alb-oidc-middleware.js';
+import { createSettingsServiceFactory } from './lib/user-data.js';
 import { requireJsonContentType } from './middleware/require-json-content-type.js';
 import { createAuthRoutes } from './routes/auth/index.js';
 import { createFsRoutes } from './routes/fs/index.js';
@@ -99,6 +101,18 @@ const DATA_DIR = process.env.DATA_DIR || './data';
 logger.info('[SERVER_STARTUP] process.env.DATA_DIR:', process.env.DATA_DIR);
 logger.info('[SERVER_STARTUP] Resolved DATA_DIR:', DATA_DIR);
 logger.info('[SERVER_STARTUP] process.cwd():', process.cwd());
+if (process.env.AUTOMAKER_SKIP_WEB_AUTH === 'true') {
+  logger.warn(
+    '[SECURITY] AUTOMAKER_SKIP_WEB_AUTH=true: first /api/auth/status grants a session without the API key. ' +
+      'Only use on trusted networks or when the service is not reachable from the public internet.'
+  );
+}
+if (process.env.AUTOMAKER_ALB_OIDC_ENABLED === 'true') {
+  logger.info(
+    '[AUTH] AUTOMAKER_ALB_OIDC_ENABLED: sessions can be created from ALB Cognito JWT (x-amzn-oidc-data). ' +
+      'Use only when traffic is fronted by an ALB Authenticate-Cognito action; do not expose the task directly to the internet.'
+  );
+}
 const ENABLE_REQUEST_LOGGING_DEFAULT = process.env.ENABLE_REQUEST_LOGGING !== 'false'; // Default to true
 
 // Runtime-configurable request logging flag (can be changed via settings)
@@ -329,12 +343,14 @@ app.use(
 );
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
+app.use(albOidcSessionMiddleware);
 
 // Create shared event emitter for streaming
 const events: EventEmitter = createEventEmitter();
 
 // Create services
 // Note: settingsService is created first so it can be injected into other services
+const resolveSettingsService = createSettingsServiceFactory(DATA_DIR);
 const settingsService = new SettingsService(DATA_DIR);
 const agentService = new AgentService(DATA_DIR, events, settingsService);
 const featureLoader = new FeatureLoader();
@@ -488,38 +504,41 @@ app.use('/api', authMiddleware);
 app.get('/api/health/detailed', createDetailedHandler());
 
 app.use('/api/fs', createFsRoutes(events));
-app.use('/api/agent', createAgentRoutes(agentService, events));
+app.use('/api/agent', createAgentRoutes(agentService, events, resolveSettingsService));
 app.use('/api/sessions', createSessionsRoutes(agentService));
 app.use(
   '/api/features',
-  createFeaturesRoutes(featureLoader, settingsService, events, autoModeService)
+  createFeaturesRoutes(featureLoader, resolveSettingsService, events, autoModeService)
 );
 app.use('/api/auto-mode', createAutoModeRoutes(autoModeService));
-app.use('/api/enhance-prompt', createEnhancePromptRoutes(settingsService));
-app.use('/api/worktree', createWorktreeRoutes(events, settingsService, featureLoader));
+app.use('/api/enhance-prompt', createEnhancePromptRoutes(resolveSettingsService));
+app.use('/api/worktree', createWorktreeRoutes(events, resolveSettingsService, featureLoader));
 app.use('/api/git', createGitRoutes());
 app.use('/api/models', createModelsRoutes());
-app.use('/api/spec-regeneration', createSpecRegenerationRoutes(events, settingsService));
+app.use('/api/spec-regeneration', createSpecRegenerationRoutes(events, resolveSettingsService));
 app.use('/api/running-agents', createRunningAgentsRoutes(autoModeService));
 app.use('/api/workspace', createWorkspaceRoutes());
 app.use('/api/templates', createTemplatesRoutes());
 app.use('/api/terminal', createTerminalRoutes());
-app.use('/api/settings', createSettingsRoutes(settingsService));
+app.use('/api/settings', createSettingsRoutes(resolveSettingsService));
 app.use('/api/claude', createClaudeRoutes(claudeUsageService));
 app.use('/api/codex', createCodexRoutes(codexUsageService, codexModelCacheService));
-app.use('/api/zai', createZaiRoutes(zaiUsageService, settingsService));
+app.use('/api/zai', createZaiRoutes(zaiUsageService, settingsService, resolveSettingsService));
 app.use('/api/gemini', createGeminiRoutes(geminiUsageService, events));
-app.use('/api/github', createGitHubRoutes(events, settingsService));
-app.use('/api/context', createContextRoutes(settingsService));
-app.use('/api/backlog-plan', createBacklogPlanRoutes(events, settingsService));
+app.use('/api/github', createGitHubRoutes(events, resolveSettingsService));
+app.use('/api/context', createContextRoutes(resolveSettingsService));
+app.use('/api/backlog-plan', createBacklogPlanRoutes(events, resolveSettingsService));
 app.use('/api/mcp', createMCPRoutes(mcpTestService));
 app.use('/api/pipeline', createPipelineRoutes(pipelineService));
 app.use('/api/ideation', createIdeationRoutes(events, ideationService, featureLoader));
 app.use('/api/notifications', createNotificationsRoutes(notificationService));
-app.use('/api/event-history', createEventHistoryRoutes(eventHistoryService, settingsService));
+app.use(
+  '/api/event-history',
+  createEventHistoryRoutes(eventHistoryService, resolveSettingsService)
+);
 app.use(
   '/api/projects',
-  createProjectsRoutes(featureLoader, autoModeService, settingsService, notificationService)
+  createProjectsRoutes(featureLoader, autoModeService, resolveSettingsService, notificationService)
 );
 
 // Create HTTP server

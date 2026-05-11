@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { createLogger } from '@automaker/utils/logger';
 import { getElectronAPI } from '@/lib/electron';
 import { getHttpApiClient } from '@/lib/http-api-client';
@@ -14,6 +13,7 @@ import {
 } from '@/hooks/mutations';
 import type { WorktreeInfo } from '../types';
 import type { UncommittedChangesInfo } from '../../dialogs/stash-confirm-dialog';
+import { router } from '@/utils/router';
 
 const logger = createLogger('WorktreeActions');
 
@@ -40,7 +40,6 @@ interface UseWorktreeActionsOptions {
 }
 
 export function useWorktreeActions(options?: UseWorktreeActionsOptions) {
-  const navigate = useNavigate();
   const [isActivating, setIsActivating] = useState(false);
 
   // Pending branch switch state (waiting for user stash decision)
@@ -181,31 +180,28 @@ export function useWorktreeActions(options?: UseWorktreeActionsOptions) {
       // Navigate to the terminal view with the worktree path and branch name
       // The terminal view will handle creating the terminal with the specified cwd
       // Include nonce to allow opening the same worktree multiple times
-      navigate({
+      void router.navigate({
         to: '/terminal',
         search: { cwd: worktree.path, branch: worktree.branch, mode, nonce: Date.now() },
       });
     },
-    [navigate]
+    []
   );
 
-  const handleRunTerminalScript = useCallback(
-    (worktree: WorktreeInfo, command: string) => {
-      // Navigate to the terminal view with the worktree path, branch, and command to run
-      // The terminal view will create a new terminal and automatically execute the command
-      navigate({
-        to: '/terminal',
-        search: {
-          cwd: worktree.path,
-          branch: worktree.branch,
-          mode: 'tab' as const,
-          nonce: Date.now(),
-          command,
-        },
-      });
-    },
-    [navigate]
-  );
+  const handleRunTerminalScript = useCallback((worktree: WorktreeInfo, command: string) => {
+    // Navigate to the terminal view with the worktree path, branch, and command to run
+    // The terminal view will create a new terminal and automatically execute the command
+    void router.navigate({
+      to: '/terminal',
+      search: {
+        cwd: worktree.path,
+        branch: worktree.branch,
+        mode: 'tab' as const,
+        nonce: Date.now(),
+        command,
+      },
+    });
+  }, []);
 
   const handleOpenInEditor = useCallback(
     async (worktree: WorktreeInfo, editorCommand?: string) => {

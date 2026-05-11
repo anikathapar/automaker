@@ -10,18 +10,18 @@ import { createGenerateFeaturesHandler } from './routes/generate-features.js';
 import { createSyncHandler } from './routes/sync.js';
 import { createStopHandler } from './routes/stop.js';
 import { createStatusHandler } from './routes/status.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 
 export function createSpecRegenerationRoutes(
   events: EventEmitter,
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): Router {
   const router = Router();
 
   router.post('/create', createCreateHandler(events));
-  router.post('/generate', createGenerateHandler(events, settingsService));
-  router.post('/generate-features', createGenerateFeaturesHandler(events, settingsService));
-  router.post('/sync', createSyncHandler(events, settingsService));
+  router.post('/generate', createGenerateHandler(events, resolveSettingsService));
+  router.post('/generate-features', createGenerateFeaturesHandler(events, resolveSettingsService));
+  router.post('/sync', createSyncHandler(events, resolveSettingsService));
   router.post('/stop', createStopHandler());
   router.get('/status', createStatusHandler());
 

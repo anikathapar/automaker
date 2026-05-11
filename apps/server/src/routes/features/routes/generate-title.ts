@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 import { createLogger } from '@automaker/utils';
 import { CLAUDE_MODEL_MAP } from '@automaker/model-resolver';
 import { simpleQuery } from '../../../providers/simple-query-service.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getPromptCustomization } from '../../../lib/settings-helpers.js';
 
 const logger = createLogger('GenerateTitle');
@@ -30,10 +30,12 @@ interface GenerateTitleErrorResponse {
 }
 
 export function createGenerateTitleHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { description } = req.body as GenerateTitleRequestBody;
 
       if (!description || typeof description !== 'string') {

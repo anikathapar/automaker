@@ -8,36 +8,55 @@
  *   checking_server → awaiting_login (401/unauthenticated)
  *   checking_server → checking_setup (authenticated)
  *   awaiting_login → logging_in → login_error | checking_setup
+ *   awaiting_login: mode sign-in or self-service register.
  *   checking_setup → redirecting
  */
 
 import { useReducer, useEffect, useRef } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import {
   login,
+  registerWebUser,
+  checkAuthStatus,
   getHttpApiClient,
-  getServerUrlSync,
-  getApiKey,
-  getSessionToken,
   initApiKey,
-  waitForApiKeyInit,
 } from '@/lib/http-api-client';
+import { router } from '@/utils/router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { KeyRound, AlertCircle, RefreshCw, ServerCrash } from 'lucide-react';
+import { User, Lock, AlertCircle, RefreshCw, ServerCrash } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuthStore } from '@/store/auth-store';
 import { useSetupStore } from '@/store/setup-store';
+import { getLocalUserCredentials, setLocalUserCredentials } from '@/lib/local-user-credentials';
+
+/** Self-service registration: min length for username (trimmed) and password. */
+const MIN_WEB_REGISTER_CREDENTIAL_LEN = 5;
 
 // =============================================================================
 // State Machine Types
 // =============================================================================
 
+type CredentialMode = 'signin' | 'register';
+
 type State =
   | { phase: 'checking_server'; attempt: number }
   | { phase: 'server_error'; message: string }
-  | { phase: 'awaiting_login'; apiKey: string; error: string | null }
-  | { phase: 'logging_in'; apiKey: string }
+  | {
+      phase: 'awaiting_login';
+      mode: CredentialMode;
+      username: string;
+      password: string;
+      passwordConfirm: string;
+      error: string | null;
+    }
+  | {
+      phase: 'logging_in';
+      mode: CredentialMode;
+      username: string;
+      password: string;
+      passwordConfirm: string;
+      error: null;
+    }
   | { phase: 'checking_setup' }
   | { phase: 'redirecting'; to: string };
 
@@ -46,7 +65,11 @@ type Action =
   | { type: 'SERVER_ERROR'; message: string }
   | { type: 'AUTH_REQUIRED' }
   | { type: 'AUTH_VALID' }
-  | { type: 'UPDATE_API_KEY'; value: string }
+  | { type: 'SET_MODE'; mode: CredentialMode }
+  | { type: 'UPDATE_USERNAME'; value: string }
+  | { type: 'UPDATE_PASSWORD'; value: string }
+  | { type: 'UPDATE_PASSWORD_CONFIRM'; value: string }
+  | { type: 'SET_LOGIN_ERROR'; message: string }
   | { type: 'SUBMIT_LOGIN' }
   | { type: 'LOGIN_ERROR'; message: string }
   | { type: 'REDIRECT'; to: string }
@@ -66,23 +89,68 @@ function reducer(state: State, action: Action): State {
     case 'SERVER_ERROR':
       return { phase: 'server_error', message: action.message };
 
-    case 'AUTH_REQUIRED':
-      return { phase: 'awaiting_login', apiKey: '', error: null };
+    case 'AUTH_REQUIRED': {
+      const saved = getLocalUserCredentials();
+      return {
+        phase: 'awaiting_login',
+        mode: 'signin',
+        username: saved?.username ?? '',
+        password: saved?.password ?? '',
+        passwordConfirm: '',
+        error: null,
+      };
+    }
 
     case 'AUTH_VALID':
       return { phase: 'checking_setup' };
 
-    case 'UPDATE_API_KEY':
+    case 'SET_MODE':
       if (state.phase !== 'awaiting_login') return state;
-      return { ...state, apiKey: action.value };
+      return {
+        ...state,
+        mode: action.mode,
+        password: action.mode === 'signin' ? state.password : '',
+        passwordConfirm: '',
+        error: null,
+      };
+
+    case 'UPDATE_USERNAME':
+      if (state.phase !== 'awaiting_login') return state;
+      return { ...state, username: action.value };
+
+    case 'UPDATE_PASSWORD':
+      if (state.phase !== 'awaiting_login') return state;
+      return { ...state, password: action.value };
+
+    case 'UPDATE_PASSWORD_CONFIRM':
+      if (state.phase !== 'awaiting_login') return state;
+      return { ...state, passwordConfirm: action.value };
+
+    case 'SET_LOGIN_ERROR':
+      if (state.phase !== 'awaiting_login') return state;
+      return { ...state, error: action.message };
 
     case 'SUBMIT_LOGIN':
       if (state.phase !== 'awaiting_login') return state;
-      return { phase: 'logging_in', apiKey: state.apiKey };
+      return {
+        phase: 'logging_in',
+        mode: state.mode,
+        username: state.username,
+        password: state.password,
+        passwordConfirm: state.passwordConfirm,
+        error: null,
+      };
 
     case 'LOGIN_ERROR':
       if (state.phase !== 'logging_in') return state;
-      return { phase: 'awaiting_login', apiKey: state.apiKey, error: action.message };
+      return {
+        phase: 'awaiting_login',
+        mode: state.mode,
+        username: state.username,
+        password: state.password,
+        passwordConfirm: state.passwordConfirm,
+        error: action.message,
+      };
 
     case 'REDIRECT':
       return { phase: 'redirecting', to: action.to };
@@ -101,58 +169,10 @@ function reducer(state: State, action: Action): State {
 
 const MAX_RETRIES = 5;
 const BACKOFF_BASE_MS = 400;
-const NO_STORE_CACHE_MODE: RequestCache = 'no-store';
 
 // =============================================================================
 // Imperative Flow Logic (runs once on mount)
 // =============================================================================
-
-/**
- * Check auth status without triggering side effects.
- * Unlike the httpClient methods, this does NOT call handleUnauthorized()
- * which would navigate us away to /logged-out.
- *
- * Supports both:
- * - Electron mode: Uses X-API-Key header (API key from IPC)
- * - Web mode: Uses HTTP-only session cookie
- *
- * Returns: { authenticated: true } or { authenticated: false }
- * Throws: on network errors (for retry logic)
- */
-async function checkAuthStatusSafe(): Promise<{ authenticated: boolean }> {
-  const serverUrl = getServerUrlSync();
-
-  // Wait for API key to be initialized before checking auth
-  // This ensures we have a valid API key to send in the header
-  await waitForApiKeyInit();
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  // Electron mode: use API key header
-  const apiKey = getApiKey();
-  if (apiKey) {
-    headers['X-API-Key'] = apiKey;
-  }
-
-  // Add session token header if available (web mode)
-  const sessionToken = getSessionToken();
-  if (sessionToken) {
-    headers['X-Session-Token'] = sessionToken;
-  }
-
-  const response = await fetch(`${serverUrl}/api/auth/status`, {
-    headers,
-    credentials: 'include',
-    signal: AbortSignal.timeout(5000),
-    cache: NO_STORE_CACHE_MODE,
-  });
-
-  // Any response means server is reachable
-  const data = await response.json();
-  return { authenticated: data.authenticated === true };
-}
 
 /**
  * Check if server is reachable and if we have a valid session.
@@ -171,7 +191,7 @@ async function checkServerAndSession(
     dispatch({ type: 'SERVER_CHECK_RETRY', attempt });
 
     try {
-      const result = await checkAuthStatusSafe();
+      const result = await checkAuthStatus({ credentialEntry: true });
 
       // Return early if the component has unmounted
       if (signal?.aborted) {
@@ -185,7 +205,6 @@ async function checkServerAndSession(
         return;
       }
 
-      // Server is reachable but we need to login
       dispatch({ type: 'AUTH_REQUIRED' });
       return;
     } catch (error: unknown) {
@@ -252,18 +271,41 @@ async function checkSetupStatus(
 }
 
 async function performLogin(
-  apiKey: string,
+  username: string,
+  password: string,
   dispatch: React.Dispatch<Action>,
   setAuthState: (state: { isAuthenticated: boolean; authChecked: boolean }) => void
 ): Promise<void> {
   try {
-    const result = await login(apiKey.trim());
+    const result = await login({ username, password });
 
     if (result.success) {
+      setLocalUserCredentials({ username: username.trim(), password });
       setAuthState({ isAuthenticated: true, authChecked: true });
       dispatch({ type: 'AUTH_VALID' });
     } else {
-      dispatch({ type: 'LOGIN_ERROR', message: result.error || 'Invalid API key' });
+      dispatch({ type: 'LOGIN_ERROR', message: result.error || 'Login failed' });
+    }
+  } catch {
+    dispatch({ type: 'LOGIN_ERROR', message: 'Failed to connect to server' });
+  }
+}
+
+async function performRegister(
+  username: string,
+  password: string,
+  dispatch: React.Dispatch<Action>,
+  setAuthState: (state: { isAuthenticated: boolean; authChecked: boolean }) => void
+): Promise<void> {
+  try {
+    const result = await registerWebUser({ username, password });
+
+    if (result.success) {
+      setLocalUserCredentials({ username: username.trim(), password: '' });
+      setAuthState({ isAuthenticated: true, authChecked: true });
+      dispatch({ type: 'AUTH_VALID' });
+    } else {
+      dispatch({ type: 'LOGIN_ERROR', message: result.error || 'Could not create account' });
     }
   } catch {
     dispatch({ type: 'LOGIN_ERROR', message: 'Failed to connect to server' });
@@ -275,13 +317,10 @@ async function performLogin(
 // =============================================================================
 
 export function LoginView() {
-  const navigate = useNavigate();
   const setAuthState = useAuthStore((s) => s.setAuthState);
   const [state, dispatch] = useReducer(reducer, initialState);
   const retryControllerRef = useRef<AbortController | null>(null);
 
-  // Initialize API key before checking session
-  // This ensures getApiKey() returns a valid value in checkAuthStatusSafe()
   useEffect(() => {
     initApiKey().catch((error) => {
       console.warn('Failed to initialize API key:', error);
@@ -317,18 +356,40 @@ export function LoginView() {
   // When we enter redirecting phase, navigate
   useEffect(() => {
     if (state.phase === 'redirecting') {
-      navigate({ to: state.to });
+      void router.navigate({ to: state.to });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- state.to only accessed when phase is redirecting
-  }, [state.phase, navigate]);
+  }, [state.phase]);
 
-  // Handle login form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (state.phase !== 'awaiting_login' || !state.apiKey.trim()) return;
+    if (state.phase !== 'awaiting_login') return;
+    const { username, password, passwordConfirm, mode } = state;
+    if (!username.trim()) return;
+
+    if (mode === 'register' && password !== passwordConfirm) {
+      dispatch({ type: 'SET_LOGIN_ERROR', message: 'Passwords do not match.' });
+      return;
+    }
+
+    if (
+      mode === 'register' &&
+      (username.trim().length < MIN_WEB_REGISTER_CREDENTIAL_LEN ||
+        password.length < MIN_WEB_REGISTER_CREDENTIAL_LEN)
+    ) {
+      dispatch({
+        type: 'SET_LOGIN_ERROR',
+        message: `Username and password must each be at least ${MIN_WEB_REGISTER_CREDENTIAL_LEN} characters.`,
+      });
+      return;
+    }
 
     dispatch({ type: 'SUBMIT_LOGIN' });
-    performLogin(state.apiKey, dispatch, setAuthState);
+    if (mode === 'register') {
+      void performRegister(username, password, dispatch, setAuthState);
+    } else {
+      void performLogin(username, password, dispatch, setAuthState);
+    }
   };
 
   // Handle retry button for server errors
@@ -396,43 +457,116 @@ export function LoginView() {
     );
   }
 
-  // Login form (awaiting_login or logging_in)
   const isLoggingIn = state.phase === 'logging_in';
-  const apiKey = state.apiKey;
-  const error = state.phase === 'awaiting_login' ? state.error : null;
+  if (state.phase !== 'awaiting_login' && state.phase !== 'logging_in') {
+    return null;
+  }
+  const { username, password, passwordConfirm, error, mode } = state;
+  const isRegister = mode === 'register';
+  const registerTooShort =
+    isRegister &&
+    (username.trim().length < MIN_WEB_REGISTER_CREDENTIAL_LEN ||
+      password.length < MIN_WEB_REGISTER_CREDENTIAL_LEN);
+  const submitDisabled =
+    isLoggingIn ||
+    !username.trim() ||
+    (isRegister && (password !== passwordConfirm || registerTooShort));
 
   return (
     <div className="flex min-h-full items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
-        {/* Header */}
         <div className="text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-            <KeyRound className="h-8 w-8 text-primary" />
+            <User className="h-8 w-8 text-primary" />
           </div>
-          <h1 className="mt-6 text-2xl font-bold tracking-tight">Authentication Required</h1>
+          <h1 className="mt-6 text-2xl font-bold tracking-tight">
+            {isRegister ? 'Create your account' : 'Sign in'}
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Enter the API key shown in the server console to continue.
+            {isRegister
+              ? `Choose a username and password (at least ${MIN_WEB_REGISTER_CREDENTIAL_LEN} characters each). You will be signed in after registration.`
+              : 'Enter your username and password. Your last username is saved in this browser; passwords are not stored here.'}
+          </p>
+          <p className="mt-3 text-sm">
+            {isRegister ? (
+              <button
+                type="button"
+                className="text-primary underline-offset-4 hover:underline"
+                onClick={() => dispatch({ type: 'SET_MODE', mode: 'signin' })}
+              >
+                Already have an account? Sign in
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="text-primary underline-offset-4 hover:underline"
+                onClick={() => dispatch({ type: 'SET_MODE', mode: 'register' })}
+              >
+                Need an account? Register
+              </button>
+            )}
           </p>
         </div>
 
-        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label htmlFor="apiKey" className="text-sm font-medium">
-              API Key
+            <label htmlFor="login-username" className="text-sm font-medium">
+              Username
             </label>
             <Input
-              id="apiKey"
-              type="password"
-              placeholder="Enter API key..."
-              value={apiKey}
-              onChange={(e) => dispatch({ type: 'UPDATE_API_KEY', value: e.target.value })}
+              id="login-username"
+              type="text"
+              placeholder="Username"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => dispatch({ type: 'UPDATE_USERNAME', value: e.target.value })}
               disabled={isLoggingIn}
               autoFocus
-              className="font-mono"
-              data-testid="login-api-key-input"
+              data-testid="login-username-input"
             />
           </div>
+          <div className="space-y-2">
+            <label htmlFor="login-password" className="text-sm font-medium flex items-center gap-2">
+              <Lock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              Password
+            </label>
+            <Input
+              id="login-password"
+              type="password"
+              placeholder="Password"
+              autoComplete={isRegister ? 'new-password' : 'current-password'}
+              value={password}
+              onChange={(e) => dispatch({ type: 'UPDATE_PASSWORD', value: e.target.value })}
+              disabled={isLoggingIn}
+              className="font-mono"
+              data-testid="login-password-input"
+            />
+          </div>
+
+          {isRegister && (
+            <div className="space-y-2">
+              <label
+                htmlFor="login-password-confirm"
+                className="text-sm font-medium flex items-center gap-2"
+              >
+                <Lock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                Confirm password
+              </label>
+              <Input
+                id="login-password-confirm"
+                type="password"
+                placeholder="Re-enter password"
+                autoComplete="new-password"
+                value={passwordConfirm}
+                onChange={(e) =>
+                  dispatch({ type: 'UPDATE_PASSWORD_CONFIRM', value: e.target.value })
+                }
+                disabled={isLoggingIn}
+                className="font-mono"
+                data-testid="login-password-confirm-input"
+              />
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
@@ -444,28 +578,46 @@ export function LoginView() {
           <Button
             type="submit"
             className="w-full"
-            disabled={isLoggingIn || !apiKey.trim()}
+            disabled={submitDisabled}
             data-testid="login-submit-button"
           >
             {isLoggingIn ? (
               <>
                 <Spinner size="sm" variant="foreground" className="mr-2" />
-                Authenticating...
+                {isRegister ? 'Creating account…' : 'Authenticating…'}
               </>
+            ) : isRegister ? (
+              'Create account & sign in'
             ) : (
               'Login'
             )}
           </Button>
+
+          {!isRegister && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={isLoggingIn}
+              onClick={() => dispatch({ type: 'SET_MODE', mode: 'register' })}
+              data-testid="login-register-toggle-button"
+            >
+              Create new account
+            </Button>
+          )}
         </form>
 
-        {/* Help Text */}
-        <div className="rounded-lg border bg-muted/50 p-4 text-sm">
-          <p className="font-medium">Where to find the API key:</p>
-          <ol className="mt-2 list-inside list-decimal space-y-1 text-muted-foreground">
-            <li>Look at the server terminal/console output</li>
-            <li>Find the box labeled "API Key for Web Mode Authentication"</li>
-            <li>Copy the UUID displayed there</li>
-          </ol>
+        <div className="rounded-lg border bg-muted/50 p-4 text-sm space-y-2 text-muted-foreground">
+          <p className="font-medium text-foreground">Where accounts live</p>
+          <p>
+            Each account is a row in the server file{' '}
+            <code className="text-xs bg-muted px-1 rounded">DATA_DIR/users.json</code> (bcrypt
+            passwords). On AWS, mount{' '}
+            <code className="text-xs bg-muted px-1 rounded">DATA_DIR</code> on durable storage (for
+            example EFS) so new sign-ups survive redeploys. Operators can also add users with{' '}
+            <code className="text-xs bg-muted px-1 rounded">npm run create-user</code> on the
+            server.
+          </p>
         </div>
       </div>
     </div>

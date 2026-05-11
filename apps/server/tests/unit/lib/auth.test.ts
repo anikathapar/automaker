@@ -310,6 +310,44 @@ describe('auth.ts', () => {
     });
   });
 
+  describe('getWebUserId / getWebAuthSource', () => {
+    it('should return webUserId from session cookie', async () => {
+      const {
+        createSession,
+        getWebUserId,
+        getWebAuthSource,
+        getSessionCookieName,
+        getAuthenticatedWebUser,
+      } = await import('@/lib/auth.js');
+      const token = await createSession({ webUserId: 'user-uuid-1' });
+      const cookieName = getSessionCookieName();
+      const req = {
+        headers: {},
+        query: {},
+        cookies: { [cookieName]: token },
+      };
+
+      expect(getWebUserId(req)).toBe('user-uuid-1');
+      expect(getWebAuthSource(req)).toBe('web_user');
+      expect(getAuthenticatedWebUser(req)).toEqual({ sub: 'user-uuid-1' });
+    });
+
+    it('should prefer oidcSub on session when webUserId absent', async () => {
+      const { createSession, getWebUserId, getWebAuthSource, getSessionCookieName } =
+        await import('@/lib/auth.js');
+      const token = await createSession({ oidcSub: 'cognito-sub-9', email: 'a@b.co' });
+      const cookieName = getSessionCookieName();
+      const req = {
+        headers: {},
+        query: {},
+        cookies: { [cookieName]: token },
+      };
+
+      expect(getWebUserId(req)).toBe('cognito-sub-9');
+      expect(getWebAuthSource(req)).toBe('alb_oidc');
+    });
+  });
+
   describe('isRequestAuthenticated', () => {
     it('should return true for authenticated request with API key', async () => {
       process.env.AUTOMAKER_API_KEY = 'test-secret-key';

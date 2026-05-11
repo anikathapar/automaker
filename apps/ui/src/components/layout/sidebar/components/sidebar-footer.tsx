@@ -2,10 +2,12 @@ import { useCallback } from 'react';
 import type { NavigateOptions } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
 import { formatShortcut } from '@/store/app-store';
-import { Activity, Settings, BookOpen, MessageSquare, ExternalLink } from 'lucide-react';
+import { Activity, Settings, BookOpen, MessageSquare, ExternalLink, LogOut } from 'lucide-react';
 import { useOSDetection } from '@/hooks/use-os-detection';
 import { getElectronAPI } from '@/lib/electron';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { logout, clearSessionToken } from '@/lib/http-api-client';
+import { useAuthStore } from '@/store/auth-store';
 
 function getOSAbbreviation(os: string): string {
   switch (os) {
@@ -59,6 +61,13 @@ export function SidebarFooter({
       window.open('https://github.com/AutoMaker-Org/automaker/issues', '_blank');
     }
   }, []);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+    clearSessionToken();
+    useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
+    navigate({ to: '/login', replace: true });
+  }, [navigate]);
 
   // Collapsed state
   if (!sidebarOpen) {
@@ -153,6 +162,28 @@ export function SidebarFooter({
               <span className="ml-2 px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono text-muted-foreground">
                 {formatShortcut(shortcuts.settings, true)}
               </span>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Log out */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className={cn(
+                  'flex items-center justify-center w-10 h-10 rounded-xl',
+                  'text-muted-foreground hover:text-foreground',
+                  'hover:bg-accent/50 border border-transparent hover:border-border/40',
+                  'transition-all duration-200 ease-out titlebar-no-drag'
+                )}
+                data-testid="logout-button"
+              >
+                <LogOut className="w-[18px] h-[18px]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              Log out
             </TooltipContent>
           </Tooltip>
 
@@ -306,6 +337,30 @@ export function SidebarFooter({
           >
             {formatShortcut(shortcuts.settings, true)}
           </span>
+        </button>
+      </div>
+
+      {/* Log out */}
+      <div className="px-3 py-0.5">
+        <button
+          type="button"
+          onClick={() => void handleLogout()}
+          className={cn(
+            'group flex items-center w-full px-3 py-2 rounded-lg relative overflow-hidden titlebar-no-drag',
+            'transition-all duration-200 ease-out',
+            'text-muted-foreground hover:text-foreground',
+            'hover:bg-accent/50',
+            'border border-transparent hover:border-border/40'
+          )}
+          data-testid="logout-button"
+        >
+          <LogOut
+            className={cn(
+              'w-[18px] h-[18px] shrink-0 transition-all duration-200',
+              'group-hover:text-destructive'
+            )}
+          />
+          <span className="ml-3 text-sm flex-1 text-left">Log out</span>
         </button>
       </div>
 

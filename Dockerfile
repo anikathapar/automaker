@@ -147,6 +147,12 @@ COPY --from=server-builder /app/apps/server/package*.json ./apps/server/
 
 # Copy node_modules (includes symlinks to libs)
 COPY --from=server-builder /app/node_modules ./node_modules
+# npm workspaces often keep some deps under apps/server/node_modules only; root copy is not enough.
+COPY --from=server-builder /app/apps/server/node_modules ./apps/server/node_modules
+# Fail the build if the SDK is missing (avoids silent ECS / health-check failures).
+RUN test -f /app/apps/server/node_modules/@anthropic-ai/claude-agent-sdk/package.json \
+  || test -f /app/node_modules/@anthropic-ai/claude-agent-sdk/package.json \
+  || (echo "ERROR: @anthropic-ai/claude-agent-sdk missing from image" >&2 && exit 1)
 
 # Install Playwright Chromium browser for AI agent verification tests
 # This adds ~300MB to the image but enables automated testing mode out of the box

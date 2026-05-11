@@ -11,7 +11,7 @@ import { getElectronAPI } from '@/lib/electron';
 import { Markdown } from '@/components/ui/markdown';
 import { useFileBrowser } from '@/contexts/file-browser-context';
 import { toast } from 'sonner';
-import { useNavigate } from '@tanstack/react-router';
+import { router } from '@/utils/router';
 import { getDefaultWorkspaceDirectory, saveLastProjectDirectory } from '@/lib/workspace-config';
 
 const logger = createLogger('InterviewView');
@@ -62,7 +62,6 @@ const INTERVIEW_QUESTIONS = [
 export function InterviewView() {
   const { addProject, setCurrentProject, setAppSpec } = useAppStore();
   const { openFileBrowser } = useFileBrowser();
-  const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<InterviewMessage[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -386,7 +385,7 @@ export function InterviewView() {
   };
 
   const handleGoBack = () => {
-    navigate({ to: '/' });
+    void router.navigate({ to: '/' });
   };
 
   return (

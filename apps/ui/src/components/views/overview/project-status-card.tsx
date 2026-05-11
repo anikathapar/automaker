@@ -5,8 +5,8 @@
  */
 
 import { useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useAppStore } from '@/store/app-store';
+import { router } from '@/utils/router';
 import { initializeProject } from '@/lib/project-init';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -56,7 +56,6 @@ const healthStatusConfig: Record<
 };
 
 export function ProjectStatusCard({ project, onProjectClick }: ProjectStatusCardProps) {
-  const navigate = useNavigate();
   const { upsertAndSetCurrentProject } = useAppStore();
 
   const statusConfig = healthStatusConfig[project.healthStatus];
@@ -79,13 +78,13 @@ export function ProjectStatusCard({ project, onProjectClick }: ProjectStatusCard
       }
 
       upsertAndSetCurrentProject(project.projectPath, project.projectName);
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
     } catch (error) {
       toast.error('Failed to open project', {
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     }
-  }, [project, onProjectClick, upsertAndSetCurrentProject, navigate]);
+  }, [project, onProjectClick, upsertAndSetCurrentProject]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {

@@ -52,20 +52,20 @@ function getSpinnerVariant(
   return 'primary';
 }
 
-function Button({
-  className,
-  variant,
-  size,
-  asChild = false,
-  loading = false,
-  disabled,
-  children,
-  ...props
-}: React.ComponentProps<'button'> &
+export type ButtonProps = React.ComponentProps<'button'> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
     loading?: boolean;
-  }) {
+  };
+
+/**
+ * Forwards ref so Radix primitives (`asChild` triggers, etc.) attach correctly.
+ * Without this, DropdownMenuTrigger + Button can fail to open or receive clicks.
+ */
+const Button = React.forwardRef<HTMLElement, ButtonProps>(function Button(
+  { className, variant, size, asChild = false, loading = false, disabled, children, ...props },
+  ref
+) {
   const isDisabled = disabled || loading;
   const spinnerVariant = getSpinnerVariant(variant);
 
@@ -73,6 +73,7 @@ function Button({
   if (variant === 'animated-outline' && !asChild) {
     return (
       <button
+        ref={ref as React.Ref<HTMLButtonElement>}
         className={cn(
           buttonVariants({ variant, size }),
           'group p-[1px]', // Force 1px padding for the gradient border, group for hover animation
@@ -105,6 +106,7 @@ function Button({
 
   return (
     <Comp
+      ref={ref as never}
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       disabled={isDisabled}
@@ -114,6 +116,8 @@ function Button({
       {children}
     </Comp>
   );
-}
+});
+
+Button.displayName = 'Button';
 
 export { Button, buttonVariants };

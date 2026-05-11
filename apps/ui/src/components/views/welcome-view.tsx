@@ -33,13 +33,12 @@ import { WorkspacePickerModal } from '@/components/dialogs/workspace-picker-moda
 import { NewProjectModal } from '@/components/dialogs/new-project-modal';
 import { getHttpApiClient } from '@/lib/http-api-client';
 import type { StarterTemplate } from '@/lib/templates';
-import { useNavigate } from '@tanstack/react-router';
+import { router } from '@/utils/router';
 
 const logger = createLogger('WelcomeView');
 
 export function WelcomeView() {
   const { projects, upsertAndSetCurrentProject, addProject, setCurrentProject } = useAppStore();
-  const navigate = useNavigate();
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isOpening, setIsOpening] = useState(false);
@@ -127,7 +126,7 @@ export function WelcomeView() {
         }
 
         // Navigate to the board view
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('[Welcome] Failed to open project:', error);
         toast.error('Failed to open project', {
@@ -137,7 +136,7 @@ export function WelcomeView() {
         setIsOpening(false);
       }
     },
-    [upsertAndSetCurrentProject, analyzeProject, navigate]
+    [upsertAndSetCurrentProject, analyzeProject]
   );
 
   const handleOpenProject = useCallback(async () => {
@@ -201,7 +200,7 @@ export function WelcomeView() {
   };
 
   const handleInteractiveMode = () => {
-    navigate({ to: '/interview' });
+    void router.navigate({ to: '/interview' });
   };
 
   /**
@@ -301,7 +300,7 @@ export function WelcomeView() {
       setShowInitDialog(true);
 
       // Navigate to the board view (dialog shows as overlay)
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
     } catch (error) {
       logger.error('Failed to create project:', error);
       toast.error('Failed to create project', {
@@ -402,7 +401,7 @@ export function WelcomeView() {
       setShowInitDialog(true);
 
       // Navigate to the board view (dialog shows as overlay)
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
 
       // Kick off project analysis
       analyzeProject(projectPath);
@@ -502,7 +501,7 @@ export function WelcomeView() {
       setShowInitDialog(true);
 
       // Navigate to the board view (dialog shows as overlay)
-      navigate({ to: '/board' });
+      void router.navigate({ to: '/board' });
 
       // Kick off project analysis
       analyzeProject(projectPath);

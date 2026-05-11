@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { AgentService } from '../../services/agent-service.js';
 import type { EventEmitter } from '../../lib/events.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import { validatePathParams } from '../../middleware/validate-paths.js';
 import { createStartHandler } from './routes/start.js';
 import { createSendHandler } from './routes/send.js';
@@ -17,14 +18,18 @@ import { createQueueListHandler } from './routes/queue-list.js';
 import { createQueueRemoveHandler } from './routes/queue-remove.js';
 import { createQueueClearHandler } from './routes/queue-clear.js';
 
-export function createAgentRoutes(agentService: AgentService, _events: EventEmitter): Router {
+export function createAgentRoutes(
+  agentService: AgentService,
+  _events: EventEmitter,
+  resolveSettingsService: SettingsServiceFactory
+): Router {
   const router = Router();
 
   router.post('/start', validatePathParams('workingDirectory?'), createStartHandler(agentService));
   router.post(
     '/send',
     validatePathParams('workingDirectory?', 'imagePaths[]'),
-    createSendHandler(agentService)
+    createSendHandler(agentService, resolveSettingsService)
   );
   router.post('/history', createHistoryHandler(agentService));
   router.post('/stop', createStopHandler(agentService));

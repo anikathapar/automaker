@@ -9,7 +9,7 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { GlobalSettings } from '../../../types/settings.js';
 import { getErrorMessage, logError, logger } from '../common.js';
 import { setLogLevel, LogLevel } from '@automaker/utils';
@@ -29,12 +29,13 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
 /**
  * Create handler factory for PUT /api/settings/global
  *
- * @param settingsService - Instance of SettingsService for file I/O
+ * @param resolveSettingsService - Per-request SettingsService (global settings + scoped credentials)
  * @returns Express request handler
  */
-export function createUpdateGlobalHandler(settingsService: SettingsService) {
+export function createUpdateGlobalHandler(resolveSettingsService: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
       const updates = req.body as Partial<GlobalSettings>;
 
       if (!updates || typeof updates !== 'object') {

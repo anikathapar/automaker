@@ -30,8 +30,18 @@ function isEnvTrue(envVar: string | undefined): boolean {
   return envVar === 'true';
 }
 
+/** Persisted web session; optional Cognito identity when created via ALB OIDC */
+export interface SessionRecord {
+  createdAt: number;
+  expiresAt: number;
+  oidcSub?: string;
+  email?: string;
+  /** Stable id from `users.json` (password login) or OIDC subject mapping */
+  webUserId?: string;
+}
+
 // Session store - persisted to file for survival across server restarts
-const validSessions = new Map<string, { createdAt: number; expiresAt: number }>();
+const validSessions = new Map<string, SessionRecord>();
 
 // Short-lived WebSocket connection tokens (in-memory only, not persisted)
 const wsConnectionTokens = new Map<string, { createdAt: number; expiresAt: number }>();
@@ -53,9 +63,7 @@ function loadSessions(): void {
   try {
     if (secureFs.existsSync(SESSIONS_FILE)) {
       const data = secureFs.readFileSync(SESSIONS_FILE, 'utf-8') as string;
-      const sessions = JSON.parse(data) as Array<
-        [string, { createdAt: number; expiresAt: number }]
-      >;
+      const sessions = JSON.parse(data) as Array<[string, SessionRecord]>;
       const now = Date.now();
       let loadedCount = 0;
       let expiredCount = 0;
@@ -143,21 +151,32 @@ const BOX_CONTENT_WIDTH = 67;
 // Print API key to console for web mode users (unless suppressed for production logging)
 if (!isEnvTrue(process.env.AUTOMAKER_HIDE_API_KEY)) {
   const autoLoginEnabled = isEnvTrue(process.env.AUTOMAKER_AUTO_LOGIN);
-  const autoLoginStatus = autoLoginEnabled ? 'enabled (auto-login active)' : 'disabled';
+  const skipWebAuth = isEnvTrue(process.env.AUTOMAKER_SKIP_WEB_AUTH);
+  const autoLoginStatus = skipWebAuth
+    ? 'N/A (AUTOMAKER_SKIP_WEB_AUTH — no web login)'
+    : autoLoginEnabled
+      ? 'enabled in dev (AUTOMAKER_AUTO_LOGIN)'
+      : 'disabled';
 
   // Build box lines with exact padding
-  const header = '🔐 API Key for Web Mode Authentication'.padEnd(BOX_CONTENT_WIDTH);
-  const line1 = "When accessing via browser, you'll be prompted to enter this key:".padEnd(
-    BOX_CONTENT_WIDTH
-  );
+  const header = '🔐 Web sign-in & API request key'.padEnd(BOX_CONTENT_WIDTH);
+  const line1 = skipWebAuth
+    ? 'Web login skipped — anyone who can open this URL gets a session.'.padEnd(BOX_CONTENT_WIDTH)
+    : 'Browser login: DATA_DIR/users.json — npm run create-user (@automaker/server).'.padEnd(
+        BOX_CONTENT_WIDTH
+      );
   const line2 = API_KEY.padEnd(BOX_CONTENT_WIDTH);
-  const line3 = 'In Electron mode, authentication is handled automatically.'.padEnd(
-    BOX_CONTENT_WIDTH
-  );
-  const line4 = `Auto-login (AUTOMAKER_AUTO_LOGIN): ${autoLoginStatus}`.padEnd(BOX_CONTENT_WIDTH);
+  const line3 = skipWebAuth
+    ? 'Optional X-API-Key for programmatic access (no session).'.padEnd(BOX_CONTENT_WIDTH)
+    : 'Optional X-API-Key header; the web UI uses a session cookie after login.'.padEnd(
+        BOX_CONTENT_WIDTH
+      );
+  const line4 = `Web auto-login: ${autoLoginStatus}`.padEnd(BOX_CONTENT_WIDTH);
   const tipHeader = '💡 Tips'.padEnd(BOX_CONTENT_WIDTH);
   const line5 = 'Set AUTOMAKER_API_KEY env var to use a fixed key'.padEnd(BOX_CONTENT_WIDTH);
-  const line6 = 'Set AUTOMAKER_AUTO_LOGIN=true to skip the login prompt'.padEnd(BOX_CONTENT_WIDTH);
+  const line6 = 'Trusted hosting: AUTOMAKER_SKIP_WEB_AUTH=true (see CLAUDE.md)'.padEnd(
+    BOX_CONTENT_WIDTH
+  );
 
   logger.info(`
 ╔═════════════════════════════════════════════════════════════════════╗
@@ -193,13 +212,27 @@ function generateSessionToken(): string {
 /**
  * Create a new session and return the token
  */
-export async function createSession(): Promise<string> {
+export async function createSession(profile?: {
+  oidcSub?: string;
+  email?: string;
+  webUserId?: string;
+}): Promise<string> {
   const token = generateSessionToken();
   const now = Date.now();
-  validSessions.set(token, {
+  const record: SessionRecord = {
     createdAt: now,
     expiresAt: now + SESSION_MAX_AGE_MS,
-  });
+  };
+  if (profile?.oidcSub) {
+    record.oidcSub = profile.oidcSub;
+    if (profile.email) {
+      record.email = profile.email;
+    }
+  }
+  if (profile?.webUserId) {
+    record.webUserId = profile.webUserId;
+  }
+  validSessions.set(token, record);
   await saveSessions(); // Persist to file
   return token;
 }
@@ -317,15 +350,91 @@ type AuthResult =
   | { authenticated: true }
   | { authenticated: false; errorType: 'invalid_api_key' | 'invalid_session' | 'no_auth' };
 
+/** Minimal request shape for auth checks (Express `Request` satisfies this). */
+export type AuthRequestLike = Pick<Request, 'headers' | 'query' | 'cookies'> & {
+  automakerOidcUser?: { sub: string; email?: string };
+};
+
+/**
+ * Cognito-backed user for this request, if the session was created via ALB OIDC.
+ * API-key-only sessions return null (still authenticated, but no SSO identity).
+ */
+export function getAuthenticatedWebUser(
+  req: AuthRequestLike
+): { sub: string; email?: string } | null {
+  const oidc = req.automakerOidcUser;
+  if (oidc?.sub) {
+    return { sub: oidc.sub, email: oidc.email };
+  }
+  const cookies = req.cookies as Record<string, string | undefined>;
+  const token = cookies?.[SESSION_COOKIE_NAME];
+  if (!token || !validateSession(token)) {
+    return null;
+  }
+  const rec = validSessions.get(token);
+  if (rec?.oidcSub) {
+    return { sub: rec.oidcSub, email: rec.email };
+  }
+  if (rec?.webUserId) {
+    return { sub: rec.webUserId };
+  }
+  return null;
+}
+
+/**
+ * Stable id for per-user data paths: Cognito `sub` from this request, else from session
+ * (`webUserId` from `users.json` login or `oidcSub` from ALB-minted session).
+ */
+export function getWebUserId(req: AuthRequestLike): string | null {
+  if (req.automakerOidcUser?.sub) {
+    return req.automakerOidcUser.sub;
+  }
+  const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
+  const token = cookies[SESSION_COOKIE_NAME];
+  if (!token || !validateSession(token)) {
+    return null;
+  }
+  const rec = validSessions.get(token);
+  return rec?.webUserId ?? rec?.oidcSub ?? null;
+}
+
+export type WebAuthSource = 'alb_oidc' | 'web_user';
+
+/**
+ * How the browser session was tied to a person (for `/api/auth/status` metadata).
+ */
+export function getWebAuthSource(req: AuthRequestLike): WebAuthSource | null {
+  if (req.automakerOidcUser?.sub) {
+    return 'alb_oidc';
+  }
+  const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
+  const token = cookies[SESSION_COOKIE_NAME];
+  if (!token || !validateSession(token)) {
+    return null;
+  }
+  const rec = validSessions.get(token);
+  if (rec?.oidcSub) {
+    return 'alb_oidc';
+  }
+  if (rec?.webUserId) {
+    return 'web_user';
+  }
+  return null;
+}
+
 /**
  * Core authentication check - shared between middleware and status check
  * Extracts auth credentials from various sources and validates them
  */
-function checkAuthentication(
-  headers: Record<string, string | string[] | undefined>,
-  query: Record<string, string | undefined>,
-  cookies: Record<string, string | undefined>
-): AuthResult {
+function checkAuthentication(req: AuthRequestLike): AuthResult {
+  if (req.automakerOidcUser?.sub) {
+    return { authenticated: true };
+  }
+
+  const headers = (req.headers ?? {}) as Record<string, string | string[] | undefined>;
+  const query = (req.query ?? {}) as Record<string, string | undefined>;
+  const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
+
   // Check for API key in header (Electron mode)
   const headerKey = headers['x-api-key'] as string | undefined;
   if (headerKey) {
@@ -388,11 +497,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  const result = checkAuthentication(
-    req.headers as Record<string, string | string[] | undefined>,
-    req.query as Record<string, string | undefined>,
-    (req.cookies || {}) as Record<string, string | undefined>
-  );
+  const result = checkAuthentication(req);
 
   if (result.authenticated) {
     next();
@@ -445,11 +550,7 @@ export function getAuthStatus(): { enabled: boolean; method: string } {
  */
 export function isRequestAuthenticated(req: Request): boolean {
   if (isEnvTrue(process.env.AUTOMAKER_DISABLE_AUTH)) return true;
-  const result = checkAuthentication(
-    req.headers as Record<string, string | string[] | undefined>,
-    req.query as Record<string, string | undefined>,
-    (req.cookies || {}) as Record<string, string | undefined>
-  );
+  const result = checkAuthentication(req);
   return result.authenticated;
 }
 
@@ -463,5 +564,5 @@ export function checkRawAuthentication(
   cookies: Record<string, string | undefined>
 ): boolean {
   if (isEnvTrue(process.env.AUTOMAKER_DISABLE_AUTH)) return true;
-  return checkAuthentication(headers, query, cookies).authenticated;
+  return checkAuthentication({ headers, query, cookies }).authenticated;
 }

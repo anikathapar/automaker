@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -22,9 +21,9 @@ import {
   type EditorInfo,
 } from '@/components/views/board-view/worktree-panel/hooks/use-available-editors';
 import { getEditorIcon } from '@/components/icons/editor-icons';
+import { router } from '@/utils/router';
 
 export function AccountSection() {
-  const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Editor settings
@@ -55,7 +54,7 @@ export function AccountSection() {
       // Reset auth state
       useAuthStore.getState().resetAuth();
       // Navigate to logged out page
-      navigate({ to: '/logged-out' });
+      void router.navigate({ to: '/login', replace: true });
     } catch (error) {
       console.error('Logout failed:', error);
       setIsLoggingOut(false);

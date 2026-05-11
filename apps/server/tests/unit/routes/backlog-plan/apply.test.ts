@@ -81,7 +81,7 @@ describe('createApplyHandler', () => {
     } as any;
     const res = createMockRes();
 
-    await createApplyHandler(settingsService)(req, res as any);
+    await createApplyHandler(() => settingsService)(req, res as any);
 
     expect(mockCreate).toHaveBeenCalledWith(
       '/tmp/project',
@@ -133,7 +133,7 @@ describe('createApplyHandler', () => {
     } as any;
     const res = createMockRes();
 
-    await createApplyHandler(settingsService)(req, res as any);
+    await createApplyHandler(() => settingsService)(req, res as any);
 
     expect(mockCreate).toHaveBeenCalledWith(
       '/tmp/project',

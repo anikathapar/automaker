@@ -8,14 +8,13 @@ import {
   ProvidersSetupStep,
   GitHubSetupStep,
 } from './setup-view/steps';
-import { useNavigate } from '@tanstack/react-router';
+import { router } from '@/utils/router';
 
 const logger = createLogger('SetupView');
 
 // Main Setup View
 export function SetupView() {
   const { currentStep, setCurrentStep, completeSetup } = useSetupStore();
-  const navigate = useNavigate();
 
   // Simplified steps: welcome, theme, providers (combined), github, complete
   const steps = ['welcome', 'theme', 'providers', 'github', 'complete'] as const;
@@ -87,7 +86,7 @@ export function SetupView() {
     logger.debug('[Setup Flow] handleFinish called - completing setup');
     completeSetup();
     logger.debug('[Setup Flow] Setup completed, redirecting to dashboard');
-    navigate({ to: '/dashboard' });
+    void router.navigate({ to: '/dashboard' });
   };
 
   return (

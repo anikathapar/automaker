@@ -22,8 +22,8 @@ import {
   ImagePreviewMap,
 } from '@/components/ui/description-image-dropzone';
 import { Play, Cpu, FolderKanban, Settings2 } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { router } from '@/utils/router';
 import { cn, normalizeModelEntry } from '@/lib/utils';
 import { useAppStore } from '@/store/app-store';
 import type { ThinkingLevel, PlanningMode, Feature, FeatureImage } from '@/store/types';
@@ -167,7 +167,6 @@ export function AddFeatureDialog({
   prefilledCategory,
 }: AddFeatureDialogProps) {
   const isSpawnMode = !!parentFeature;
-  const navigate = useNavigate();
   const [workMode, setWorkMode] = useState<WorkMode>('current');
 
   // Form state
@@ -578,7 +577,7 @@ export function AddFeatureDialog({
                     type="button"
                     onClick={() => {
                       onOpenChange(false);
-                      navigate({ to: '/settings', search: { view: 'defaults' } });
+                      void router.navigate({ to: '/settings', search: { view: 'defaults' } });
                     }}
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >

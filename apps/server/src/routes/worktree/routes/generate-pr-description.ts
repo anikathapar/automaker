@@ -15,7 +15,7 @@ import { createLogger } from '@automaker/utils';
 import { isCursorModel, stripProviderPrefix } from '@automaker/types';
 import { resolvePhaseModel } from '@automaker/model-resolver';
 import { ProviderFactory } from '../../../providers/provider-factory.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getErrorMessage, logError } from '../common.js';
 import { getPhaseModelWithOverrides } from '../../../lib/settings-helpers.js';
 
@@ -111,10 +111,12 @@ interface GeneratePRDescriptionErrorResponse {
 }
 
 export function createGeneratePRDescriptionHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { worktreePath, baseBranch } = req.body as GeneratePRDescriptionRequestBody;
 
       if (!worktreePath || typeof worktreePath !== 'string') {

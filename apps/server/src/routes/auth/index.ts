@@ -2,8 +2,8 @@
  * Auth routes - Login, logout, and status endpoints
  *
  * Security model:
- * - Web mode: User enters API key (shown on server console) to get HTTP-only session cookie
- * - Electron mode: Uses X-API-Key header (handled automatically via IPC)
+ * - Web mode: Username/password validated against `DATA_DIR/users.json` (bcrypt); session cookie on success
+ * - Optional X-API-Key on requests (Electron / automation) uses the server API key from env or `DATA_DIR/.api-key`
  *
  * The session cookie is:
  * - HTTP-only: JavaScript cannot read it (protects against XSS)
@@ -15,18 +15,23 @@
 import { Router } from 'express';
 import type { Request } from 'express';
 import {
-  validateApiKey,
   createSession,
   invalidateSession,
   getSessionCookieOptions,
   getSessionCookieName,
   isRequestAuthenticated,
   createWsConnectionToken,
+  getAuthenticatedWebUser,
+  getWebAuthSource,
 } from '../../lib/auth.js';
+import { verifyUserPassword, createUser } from '../../lib/users.js';
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
 const RATE_LIMIT_MAX_ATTEMPTS = 5; // Max 5 attempts per window
+
+/** Minimum length for username and password on self-service web registration only. */
+const MIN_WEB_REGISTER_CREDENTIAL_LEN = 5;
 
 // Check if we're in test mode - disable rate limiting for E2E tests
 const isTestMode = process.env.AUTOMAKER_MOCK_AGENT === 'true';
@@ -118,19 +123,26 @@ export function createAuthRoutes(): Router {
    * Returns whether the current request is authenticated.
    * Used by the UI to determine if login is needed.
    *
-   * If AUTOMAKER_AUTO_LOGIN=true is set, automatically creates a session
-   * for unauthenticated requests (useful for development).
+   * - AUTOMAKER_AUTO_LOGIN=true: auto-creates a session in non-production (dev convenience).
+   * - AUTOMAKER_SKIP_WEB_AUTH=true: auto-creates a session even in production (trusted /
+   *   single-tenant deploys only — anyone who can open the URL is treated as logged in).
+   *
+   * When the client sends X-Automaker-Credential-Entry: true, skip auto-minting so the
+   * login page can stay unauthenticated after logout (otherwise every /status would
+   * immediately issue a new session cookie).
    */
   router.get('/status', async (req, res) => {
     let authenticated = isRequestAuthenticated(req);
 
-    // Auto-login for development: create session automatically if enabled
-    // Only works in non-production environments as a safeguard
-    if (
-      !authenticated &&
-      process.env.AUTOMAKER_AUTO_LOGIN === 'true' &&
-      process.env.NODE_ENV !== 'production'
-    ) {
+    const skipWebAuth = process.env.AUTOMAKER_SKIP_WEB_AUTH === 'true';
+    const devAutoLogin =
+      process.env.AUTOMAKER_AUTO_LOGIN === 'true' && process.env.NODE_ENV !== 'production';
+
+    const credentialEntryHeader = req.headers['x-automaker-credential-entry'];
+    const skipAutoMintForLoginPage =
+      credentialEntryHeader === 'true' || credentialEntryHeader === '1';
+
+    if (!authenticated && (skipWebAuth || devAutoLogin) && !skipAutoMintForLoginPage) {
       const sessionToken = await createSession();
       const cookieOptions = getSessionCookieOptions();
       const cookieName = getSessionCookieName();
@@ -138,18 +150,25 @@ export function createAuthRoutes(): Router {
       authenticated = true;
     }
 
+    const user = authenticated ? getAuthenticatedWebUser(req) : null;
+    const authSource = authenticated ? getWebAuthSource(req) : null;
+
     res.json({
       success: true,
       authenticated,
       required: true,
+      registrationOpen: true,
+      ...(user && authSource ? { user, authSource } : {}),
     });
   });
 
   /**
    * POST /api/auth/login
    *
-   * Validates the API key and sets a session cookie.
-   * Body: { apiKey: string }
+   * Validates credentials and sets a session cookie.
+   *
+   * Body: `{ username: string, password: string }` — must match a user in `DATA_DIR/users.json`
+   * (bcrypt password hashes). Create users with `npm run create-user` in `@automaker/server`.
    *
    * Rate limited to 5 attempts per minute per IP to prevent brute force attacks.
    */
@@ -170,31 +189,43 @@ export function createAuthRoutes(): Router {
       }
     }
 
-    const { apiKey } = req.body as { apiKey?: string };
+    const { username, password } = req.body as {
+      username?: string;
+      password?: string;
+    };
 
-    if (!apiKey) {
-      res.status(400).json({
-        success: false,
-        error: 'API key is required.',
-      });
-      return;
-    }
+    const usernameTrimmed = typeof username === 'string' ? username.trim() : '';
+    const passwordStr = typeof password === 'string' ? password : '';
 
-    // Record this attempt (only for actual API key validation attempts, skip in test mode)
+    // Record this attempt (only for actual validation attempts, skip in test mode)
     if (!isTestMode) {
       recordLoginAttempt(clientIp);
     }
 
-    if (!validateApiKey(apiKey)) {
-      res.status(401).json({
+    let sessionProfile: { webUserId?: string } | undefined;
+
+    if (!usernameTrimmed || typeof password !== 'string') {
+      res.status(400).json({
         success: false,
-        error: 'Invalid API key.',
+        error: 'Username and password are required.',
       });
       return;
     }
 
+    const fileUser = await verifyUserPassword(usernameTrimmed, passwordStr);
+    if (!fileUser) {
+      res.status(401).json({
+        success: false,
+        registrationOpen: true,
+        error:
+          'Invalid username or password. Use “Create new account” below to sign up, or ask an operator to run `npm run create-user` on the server.',
+      });
+      return;
+    }
+    sessionProfile = { webUserId: fileUser.id };
+
     // Create session and set cookie
-    const sessionToken = await createSession();
+    const sessionToken = await createSession(sessionProfile);
     const cookieOptions = getSessionCookieOptions();
     const cookieName = getSessionCookieName();
 
@@ -205,6 +236,74 @@ export function createAuthRoutes(): Router {
       // Return token for explicit header-based auth (works around cross-origin cookie issues)
       token: sessionToken,
     });
+  });
+
+  /**
+   * POST /api/auth/register
+   *
+   * Self-service account creation (writes `DATA_DIR/users.json`). Always enabled.
+   * Username (trimmed) and password must each be at least 5 characters.
+   * Rate limited like login. On success, sets session cookie (same as login).
+   */
+  router.post('/register', async (req, res) => {
+    const clientIp = getClientIp(req);
+    if (!isTestMode) {
+      const rateLimit = checkRateLimit(clientIp);
+      if (rateLimit.limited) {
+        res.status(429).json({
+          success: false,
+          error: 'Too many attempts. Please try again later.',
+          retryAfter: rateLimit.retryAfter,
+        });
+        return;
+      }
+    }
+
+    const { username, password } = req.body as {
+      username?: string;
+      password?: string;
+    };
+    const usernameTrimmed = typeof username === 'string' ? username.trim() : '';
+    const passwordStr = typeof password === 'string' ? password : '';
+
+    if (!usernameTrimmed || typeof password !== 'string') {
+      res.status(400).json({
+        success: false,
+        error: 'Username and password are required.',
+      });
+      return;
+    }
+
+    if (
+      usernameTrimmed.length < MIN_WEB_REGISTER_CREDENTIAL_LEN ||
+      passwordStr.length < MIN_WEB_REGISTER_CREDENTIAL_LEN
+    ) {
+      res.status(400).json({
+        success: false,
+        error: `Username and password must each be at least ${MIN_WEB_REGISTER_CREDENTIAL_LEN} characters.`,
+      });
+      return;
+    }
+
+    if (!isTestMode) {
+      recordLoginAttempt(clientIp);
+    }
+
+    try {
+      const fileUser = await createUser(usernameTrimmed, passwordStr);
+      const sessionToken = await createSession({ webUserId: fileUser.id });
+      const cookieOptions = getSessionCookieOptions();
+      const cookieName = getSessionCookieName();
+      res.cookie(cookieName, sessionToken, cookieOptions);
+      res.json({
+        success: true,
+        message: 'Account created.',
+        token: sessionToken,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create account.';
+      res.status(400).json({ success: false, error: message });
+    }
   });
 
   /**

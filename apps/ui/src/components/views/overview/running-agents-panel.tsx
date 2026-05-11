@@ -5,8 +5,8 @@
  */
 
 import { useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useAppStore } from '@/store/app-store';
+import { router } from '@/utils/router';
 import { initializeProject } from '@/lib/project-init';
 import { toast } from 'sonner';
 import type { ProjectStatus } from '@automaker/types';
@@ -26,7 +26,6 @@ interface RunningAgent {
 }
 
 export function RunningAgentsPanel({ projects }: RunningAgentsPanelProps) {
-  const navigate = useNavigate();
   const { upsertAndSetCurrentProject } = useAppStore();
 
   // Extract running agents from projects
@@ -53,14 +52,14 @@ export function RunningAgentsPanel({ projects }: RunningAgentsPanelProps) {
         }
 
         upsertAndSetCurrentProject(agent.projectPath, agent.projectName);
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         toast.error('Failed to navigate to agent', {
           description: error instanceof Error ? error.message : 'Unknown error',
         });
       }
     },
-    [navigate, upsertAndSetCurrentProject]
+    [upsertAndSetCurrentProject]
   );
 
   const handleAgentKeyDown = useCallback(

@@ -12,11 +12,16 @@ import {
   logError,
 } from '../common.js';
 import { generateBacklogPlan } from '../generate-plan.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 
-export function createGenerateHandler(events: EventEmitter, settingsService?: SettingsService) {
+export function createGenerateHandler(
+  events: EventEmitter,
+  resolveSettingsService?: SettingsServiceFactory
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { projectPath, prompt, model, branchName } = req.body as {
         projectPath: string;
         prompt: string;

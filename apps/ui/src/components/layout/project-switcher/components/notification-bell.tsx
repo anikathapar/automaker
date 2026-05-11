@@ -4,7 +4,6 @@
 
 import { useCallback } from 'react';
 import { Bell, Check, Trash2, AlertCircle } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useLoadNotifications, useNotificationEvents } from '@/hooks/use-notification-events';
 import { getHttpApiClient } from '@/lib/http-api-client';
@@ -12,13 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Notification } from '@automaker/types';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { router } from '@/utils/router';
 
 interface NotificationBellProps {
   projectPath: string | null;
 }
 
 export function NotificationBell({ projectPath }: NotificationBellProps) {
-  const navigate = useNavigate();
   const {
     notifications,
     unreadCount,
@@ -68,7 +67,7 @@ export function NotificationBell({ projectPath }: NotificationBellProps) {
 
       // Navigate to the relevant view based on notification type
       if (notification.featureId) {
-        navigate({
+        void router.navigate({
           to: '/board',
           search: {
             featureId: notification.featureId,
@@ -77,13 +76,13 @@ export function NotificationBell({ projectPath }: NotificationBellProps) {
         });
       }
     },
-    [handleMarkAsRead, setPopoverOpen, navigate]
+    [handleMarkAsRead, setPopoverOpen]
   );
 
   const handleViewAll = useCallback(() => {
     setPopoverOpen(false);
-    navigate({ to: '/notifications' });
-  }, [setPopoverOpen, navigate]);
+    void router.navigate({ to: '/notifications' });
+  }, [setPopoverOpen]);
 
   const getNotificationIcon = (type: string) => {
     switch (type) {

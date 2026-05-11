@@ -9,19 +9,20 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { Credentials } from '../../../types/settings.js';
 import { getErrorMessage, logError } from '../common.js';
 
 /**
  * Create handler factory for PUT /api/settings/credentials
  *
- * @param settingsService - Instance of SettingsService for file I/O
+ * @param resolveSettingsService - Per-request SettingsService (global settings + scoped credentials)
  * @returns Express request handler
  */
-export function createUpdateCredentialsHandler(settingsService: SettingsService) {
+export function createUpdateCredentialsHandler(resolveSettingsService: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
       const updates = req.body as Partial<Credentials>;
 
       if (!updates || typeof updates !== 'object') {

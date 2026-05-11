@@ -18,105 +18,117 @@ if (isPwaStandalone) {
 // the SW installs, so they can't be cached until warmAssetCache runs later.
 // Registering early allows the SW to serve bundles from cache on the NEXT visit.
 //
+// Skip in Vite dev: public/sw.js uses cache-first for /src/*.tsx. That serves stale
+// transforms while Vite serves fresh /node_modules/.vite/deps — two React copies
+// and "Invalid hook call" / Cannot read properties of null (reading 'useState').
+//
 // Note: The SW itself does NOT call skipWaiting() on install, so a newly
 // registered SW won't disrupt a live page — it waits for SKIP_WAITING from the
 // main thread or for all old-SW tabs to close before activating.
 if ('serviceWorker' in navigator && !window.location.protocol.startsWith('file')) {
-  navigator.serviceWorker
-    .register('/sw.js', {
-      // Check for updates on every page load for PWA freshness
-      updateViaCache: 'none',
-    })
-    .then((registration) => {
-      // Check for service worker updates periodically
-      // Mobile: every 60 minutes (saves battery/bandwidth)
-      // Desktop: every 30 minutes
-      const updateInterval = isMobileDevice ? 60 * 60 * 1000 : 30 * 60 * 1000;
-      setInterval(() => {
-        registration.update().catch(() => {
-          // Update check failed silently - will try again next interval
-        });
-      }, updateInterval);
-
-      // When a new service worker is found, DON'T activate it immediately.
-      // Instead, wait until the user navigates away or refreshes. This prevents
-      // the brief reload/flash that occurs when skipWaiting() + clients.claim()
-      // swaps the SW under a live page (especially noticeable when switching back
-      // to the PWA on mobile).
-      //
-      // The new SW will naturally activate when all tabs using the old SW are closed.
-      // For urgent updates, we send SKIP_WAITING on fresh page loads (see below).
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // A new SW is waiting — show an update banner so long-lived
-              // sessions can immediately pick up new deployments.
-              console.debug('[SW] New service worker installed and waiting to activate');
-              showUpdateNotification(registration);
-            }
-            if (newWorker.state === 'activated') {
-              // New service worker is active - clean up old immutable cache entries
-              newWorker.postMessage({ type: 'CACHE_CLEANUP' });
-            }
+  // Tear down any SW from a prior prod/preview session on this origin so dev
+  // requests are not intercepted by a stale controller (see skip reason above).
+  if (import.meta.env.DEV) {
+    void navigator.serviceWorker.getRegistrations().then((regs) => {
+      for (const reg of regs) void reg.unregister();
+    });
+  } else {
+    navigator.serviceWorker
+      .register('/sw.js', {
+        // Check for updates on every page load for PWA freshness
+        updateViaCache: 'none',
+      })
+      .then((registration) => {
+        // Check for service worker updates periodically
+        // Mobile: every 60 minutes (saves battery/bandwidth)
+        // Desktop: every 30 minutes
+        const updateInterval = isMobileDevice ? 60 * 60 * 1000 : 30 * 60 * 1000;
+        setInterval(() => {
+          registration.update().catch(() => {
+            // Update check failed silently - will try again next interval
           });
-        }
-      });
+        }, updateInterval);
 
-      // On fresh page loads (not tab-switch-back), if there's a waiting SW,
-      // tell it to activate now. This is safe because the page is freshly loaded
-      // and won't flash. This ensures updates are picked up within one page visit.
-      if (registration.waiting) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
-
-      // Notify the service worker about mobile mode.
-      // This enables stale-while-revalidate caching for API responses,
-      // preventing blank screens caused by failed/slow API fetches on mobile.
-      if (isMobileDevice && registration.active) {
-        registration.active.postMessage({
-          type: 'SET_MOBILE_MODE',
-          enabled: true,
+        // When a new service worker is found, DON'T activate it immediately.
+        // Instead, wait until the user navigates away or refreshes. This prevents
+        // the brief reload/flash that occurs when skipWaiting() + clients.claim()
+        // swaps the SW under a live page (especially noticeable when switching back
+        // to the PWA on mobile).
+        //
+        // The new SW will naturally activate when all tabs using the old SW are closed.
+        // For urgent updates, we send SKIP_WAITING on fresh page loads (see below).
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // A new SW is waiting — show an update banner so long-lived
+                // sessions can immediately pick up new deployments.
+                console.debug('[SW] New service worker installed and waiting to activate');
+                showUpdateNotification(registration);
+              }
+              if (newWorker.state === 'activated') {
+                // New service worker is active - clean up old immutable cache entries
+                newWorker.postMessage({ type: 'CACHE_CLEANUP' });
+              }
+            });
+          }
         });
-      }
 
-      // Also listen for the SW becoming active (in case it wasn't ready above)
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (isMobileDevice && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
+        // On fresh page loads (not tab-switch-back), if there's a waiting SW,
+        // tell it to activate now. This is safe because the page is freshly loaded
+        // and won't flash. This ensures updates are picked up within one page visit.
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+
+        // Notify the service worker about mobile mode.
+        // This enables stale-while-revalidate caching for API responses,
+        // preventing blank screens caused by failed/slow API fetches on mobile.
+        if (isMobileDevice && registration.active) {
+          registration.active.postMessage({
             type: 'SET_MOBILE_MODE',
             enabled: true,
           });
         }
+
+        // Also listen for the SW becoming active (in case it wasn't ready above)
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (isMobileDevice && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+              type: 'SET_MOBILE_MODE',
+              enabled: true,
+            });
+          }
+        });
+
+        // Warm the SW's immutable cache with all page assets during idle time.
+        // This ensures that when the PWA is evicted from memory and reopened,
+        // all JS/CSS can be served instantly from SW cache instead of re-downloading.
+        warmAssetCache(registration);
+
+        // Request persistent storage to protect caches from OS eviction.
+        // Without this, iOS Safari can purge Cache Storage under memory pressure
+        // or after 7 days of inactivity, forcing a full network reload on next visit.
+        // This is a best-effort request — the browser may deny it, but it's a no-op
+        // on browsers that don't support it (no error thrown).
+        if (navigator.storage?.persist) {
+          navigator.storage
+            .persist()
+            .then((granted) => {
+              if (granted) {
+                console.debug('[SW] Persistent storage granted — caches protected from eviction');
+              }
+            })
+            .catch(() => {
+              // Silently ignore — persistent storage is a nice-to-have
+            });
+        }
+      })
+      .catch(() => {
+        // Service worker registration failed; app still works without it
       });
-
-      // Warm the SW's immutable cache with all page assets during idle time.
-      // This ensures that when the PWA is evicted from memory and reopened,
-      // all JS/CSS can be served instantly from SW cache instead of re-downloading.
-      warmAssetCache(registration);
-
-      // Request persistent storage to protect caches from OS eviction.
-      // Without this, iOS Safari can purge Cache Storage under memory pressure
-      // or after 7 days of inactivity, forcing a full network reload on next visit.
-      // This is a best-effort request — the browser may deny it, but it's a no-op
-      // on browsers that don't support it (no error thrown).
-      if (navigator.storage?.persist) {
-        navigator.storage
-          .persist()
-          .then((granted) => {
-            if (granted) {
-              console.debug('[SW] Persistent storage granted — caches protected from eviction');
-            }
-          })
-          .catch(() => {
-            // Silently ignore — persistent storage is a nice-to-have
-          });
-      }
-    })
-    .catch(() => {
-      // Service worker registration failed; app still works without it
-    });
+  }
 }
 
 /**

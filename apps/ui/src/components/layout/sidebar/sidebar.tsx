@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, startTransition } from 'react';
 import { createLogger } from '@automaker/utils/logger';
-import { useNavigate, useLocation } from '@tanstack/react-router';
+import { useLocation } from '@tanstack/react-router';
+import type { NavigateOptions } from '@tanstack/react-router';
 import { PanelLeftClose, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/app-store';
@@ -42,11 +43,14 @@ import { DeleteProjectDialog } from '@/components/views/settings-view/components
 import { RemoveFromAutomakerDialog } from '@/components/views/settings-view/components/remove-from-automaker-dialog';
 import { NewProjectModal } from '@/components/dialogs/new-project-modal';
 import { CreateSpecDialog } from '@/components/views/spec-view/dialogs';
+import { router } from '@/utils/router';
 
 const logger = createLogger('Sidebar');
 
 export function Sidebar() {
-  const navigate = useNavigate();
+  const navigate = useCallback((opts: NavigateOptions) => {
+    void router.navigate(opts);
+  }, []);
   const location = useLocation();
 
   const {

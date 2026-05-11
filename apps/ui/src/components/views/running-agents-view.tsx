@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { getElectronAPI, type RunningAgent } from '@/lib/electron';
 import { useAppStore } from '@/store/app-store';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from '@tanstack/react-router';
+import { router } from '@/utils/router';
 import { AgentOutputModal } from './board-view/dialogs/agent-output-modal';
 import { useRunningAgents } from '@/hooks/queries';
 import { useStopFeature } from '@/hooks/mutations';
@@ -30,7 +30,6 @@ function formatFeatureId(featureId: string): string {
 export function RunningAgentsView() {
   const [selectedAgent, setSelectedAgent] = useState<RunningAgent | null>(null);
   const { setCurrentProject, projects } = useAppStore();
-  const navigate = useNavigate();
 
   const logger = createLogger('RunningAgentsView');
 
@@ -78,7 +77,7 @@ export function RunningAgentsView() {
           featureId: agent.featureId,
         });
         setCurrentProject(project);
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } else {
         logger.debug('Project not found for running agent', {
           projectPath: agent.projectPath,
@@ -87,7 +86,7 @@ export function RunningAgentsView() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- logger is stable
-    [projects, setCurrentProject, navigate]
+    [projects, setCurrentProject]
   );
 
   const handleViewLogs = useCallback((agent: RunningAgent) => {

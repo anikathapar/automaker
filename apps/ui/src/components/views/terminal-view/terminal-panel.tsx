@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { createLogger } from '@automaker/utils/logger';
+import { router } from '@/utils/router';
 import {
   X,
   SplitSquareHorizontal,
@@ -138,7 +138,6 @@ export function TerminalPanel({
   onToggleMaximize,
   branchName,
 }: TerminalPanelProps) {
-  const navigate = useNavigate();
   const terminalRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerminal | null>(null);
@@ -2135,7 +2134,10 @@ export function TerminalPanel({
             onRunCommandInNewTab={onRunCommandInNewTab}
             isConnected={connectionStatus === 'connected'}
             onOpenSettings={() =>
-              navigate({ to: '/project-settings', search: { section: 'commands-scripts' } })
+              void router.navigate({
+                to: '/project-settings',
+                search: { section: 'commands-scripts' },
+              })
             }
           />
 

@@ -11,7 +11,7 @@
 
 import type { Request, Response } from 'express';
 import type { EventHistoryService } from '../../../services/event-history-service.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import type { EventReplayResult, EventReplayHookResult, EventHook } from '@automaker/types';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -160,10 +160,12 @@ async function executeHook(hook: EventHook, context: HookContext): Promise<Event
 
 export function createReplayHandler(
   eventHistoryService: EventHistoryService,
-  settingsService: SettingsService
+  resolveSettingsService: SettingsServiceFactory
 ) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
+
       const { projectPath, eventId, hookIds } = req.body as {
         projectPath: string;
         eventId: string;

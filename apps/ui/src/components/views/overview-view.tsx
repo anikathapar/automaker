@@ -6,8 +6,8 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { createLogger } from '@automaker/utils/logger';
+import { router } from '@/utils/router';
 import { useMultiProjectStatus } from '@/hooks/use-multi-project-status';
 import { useAppStore } from '@/store/app-store';
 import { isElectron, getElectronAPI } from '@/lib/electron';
@@ -41,7 +41,6 @@ import {
 const logger = createLogger('OverviewView');
 
 export function OverviewView() {
-  const navigate = useNavigate();
   const { overview, isLoading, error, refresh } = useMultiProjectStatus(15000); // Refresh every 15s
   const { upsertAndSetCurrentProject } = useAppStore();
 
@@ -64,7 +63,7 @@ export function OverviewView() {
         upsertAndSetCurrentProject(path, name);
 
         toast.success('Project opened', { description: `Opened ${name}` });
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('[Overview] Failed to open project:', error);
         toast.error('Failed to open project', {
@@ -72,7 +71,7 @@ export function OverviewView() {
         });
       }
     },
-    [upsertAndSetCurrentProject, navigate]
+    [upsertAndSetCurrentProject]
   );
 
   const handleOpenProject = useCallback(async () => {
@@ -145,7 +144,7 @@ export function OverviewView() {
         setShowNewProjectModal(false);
 
         toast.success('Project created', { description: `Created ${projectName}` });
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('Failed to create project:', error);
         toast.error('Failed to create project', {
@@ -155,7 +154,7 @@ export function OverviewView() {
         setIsCreating(false);
       }
     },
-    [upsertAndSetCurrentProject, navigate]
+    [upsertAndSetCurrentProject]
   );
 
   const handleCreateFromTemplate = useCallback(
@@ -190,7 +189,7 @@ export function OverviewView() {
         toast.success('Project created from template', {
           description: `Created ${projectName} from ${template.name}`,
         });
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('Failed to create from template:', error);
         toast.error('Failed to create project', {
@@ -200,7 +199,7 @@ export function OverviewView() {
         setIsCreating(false);
       }
     },
-    [upsertAndSetCurrentProject, navigate]
+    [upsertAndSetCurrentProject]
   );
 
   const handleCreateFromCustomUrl = useCallback(
@@ -229,7 +228,7 @@ export function OverviewView() {
         setShowNewProjectModal(false);
 
         toast.success('Project created from repository', { description: `Created ${projectName}` });
-        navigate({ to: '/board' });
+        void router.navigate({ to: '/board' });
       } catch (error) {
         logger.error('Failed to create from custom URL:', error);
         toast.error('Failed to create project', {
@@ -239,7 +238,7 @@ export function OverviewView() {
         setIsCreating(false);
       }
     },
-    [upsertAndSetCurrentProject, navigate]
+    [upsertAndSetCurrentProject]
   );
 
   return (

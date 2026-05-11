@@ -13,7 +13,7 @@
  */
 
 import { Router } from 'express';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import { validatePathParams } from '../../middleware/validate-paths.js';
 import { createGetGlobalHandler } from './routes/get-global.js';
 import { createUpdateGlobalHandler } from './routes/update-global.js';
@@ -42,37 +42,37 @@ import { createDiscoverAgentsHandler } from './routes/discover-agents.js';
  * - POST /migrate - Migrate settings from localStorage
  * - POST /agents/discover - Discover filesystem agents from .claude/agents/ (read-only)
  *
- * @param settingsService - Instance of SettingsService for file I/O
+ * @param resolveSettingsService - Per-request SettingsService (global settings + scoped credentials)
  * @returns Express Router configured with all settings endpoints
  */
-export function createSettingsRoutes(settingsService: SettingsService): Router {
+export function createSettingsRoutes(resolveSettingsService: SettingsServiceFactory): Router {
   const router = Router();
 
   // Status endpoint (check if migration needed)
-  router.get('/status', createStatusHandler(settingsService));
+  router.get('/status', createStatusHandler(resolveSettingsService));
 
   // Global settings
-  router.get('/global', createGetGlobalHandler(settingsService));
-  router.put('/global', createUpdateGlobalHandler(settingsService));
+  router.get('/global', createGetGlobalHandler(resolveSettingsService));
+  router.put('/global', createUpdateGlobalHandler(resolveSettingsService));
 
   // Credentials (separate for security)
-  router.get('/credentials', createGetCredentialsHandler(settingsService));
-  router.put('/credentials', createUpdateCredentialsHandler(settingsService));
+  router.get('/credentials', createGetCredentialsHandler(resolveSettingsService));
+  router.put('/credentials', createUpdateCredentialsHandler(resolveSettingsService));
 
   // Project settings
   router.post(
     '/project',
     validatePathParams('projectPath'),
-    createGetProjectHandler(settingsService)
+    createGetProjectHandler(resolveSettingsService)
   );
   router.put(
     '/project',
     validatePathParams('projectPath'),
-    createUpdateProjectHandler(settingsService)
+    createUpdateProjectHandler(resolveSettingsService)
   );
 
   // Migration from localStorage
-  router.post('/migrate', createMigrateHandler(settingsService));
+  router.post('/migrate', createMigrateHandler(resolveSettingsService));
 
   // Filesystem agents discovery (read-only)
   router.post('/agents/discover', createDiscoverAgentsHandler());

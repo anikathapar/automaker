@@ -64,6 +64,8 @@ interface Session {
   reasoningEffort?: ReasoningEffort; // Reasoning effort for Codex models
   sdkSessionId?: string; // Claude SDK session ID for conversation continuity
   promptQueue: QueuedPrompt[]; // Queue of prompts to auto-run after current task
+  /** First authenticated HTTP request binds per-user credentials for this chat session (queue). */
+  scopedSettingsService?: SettingsService | null;
 }
 
 interface SessionMetadata {
@@ -138,6 +140,7 @@ export class AgentService {
         abortController: null,
         workingDirectory: resolvedWorkingDirectory,
         promptQueue: [],
+        scopedSettingsService: undefined,
       };
       this.sessions.set(sessionId, session);
     }
@@ -252,6 +255,7 @@ export class AgentService {
     model,
     thinkingLevel,
     reasoningEffort,
+    settingsService: requestSettingsService,
   }: {
     sessionId: string;
     message: string;
@@ -260,6 +264,8 @@ export class AgentService {
     model?: string;
     thinkingLevel?: ThinkingLevel;
     reasoningEffort?: ReasoningEffort;
+    /** When set (e.g. from HTTP route), used for credentials + settings reads; stored on session for queued prompts */
+    settingsService?: SettingsService | null;
   }) {
     const session = await this.ensureSession(sessionId, workingDirectory);
     if (!session) {
@@ -279,6 +285,12 @@ export class AgentService {
       this.logger.error('ERROR: Agent already running for session:', sessionId);
       throw new Error('Agent is already processing a message');
     }
+
+    if (requestSettingsService !== undefined) {
+      session.scopedSettingsService = requestSettingsService;
+    }
+    const settingsSvc =
+      session.scopedSettingsService ?? requestSettingsService ?? this.settingsService;
 
     // Update session model, thinking level, and reasoning effort if provided
     if (model) {
@@ -354,7 +366,7 @@ export class AgentService {
       // Load autoLoadClaudeMd setting (project setting takes precedence over global)
       const autoLoadClaudeMd = await getAutoLoadClaudeMdSetting(
         effectiveWorkDir,
-        this.settingsService,
+        settingsSvc,
         '[AgentService]'
       );
 
@@ -364,7 +376,7 @@ export class AgentService {
       try {
         useClaudeCodeSystemPrompt = await getUseClaudeCodeSystemPromptSetting(
           effectiveWorkDir,
-          this.settingsService,
+          settingsSvc,
           '[AgentService]'
         );
       } catch (err) {
@@ -375,36 +387,36 @@ export class AgentService {
       }
 
       // Load MCP servers from settings (global setting only)
-      const mcpServers = await getMCPServersFromSettings(this.settingsService, '[AgentService]');
+      const mcpServers = await getMCPServersFromSettings(settingsSvc, '[AgentService]');
 
       // Get Skills configuration from settings
-      const skillsConfig = this.settingsService
-        ? await getSkillsConfiguration(this.settingsService)
+      const skillsConfig = settingsSvc
+        ? await getSkillsConfiguration(settingsSvc)
         : { enabled: false, sources: [] as Array<'user' | 'project'>, shouldIncludeInTools: false };
 
       // Get Subagents configuration from settings
-      const subagentsConfig = this.settingsService
-        ? await getSubagentsConfiguration(this.settingsService)
+      const subagentsConfig = settingsSvc
+        ? await getSubagentsConfiguration(settingsSvc)
         : { enabled: false, sources: [] as Array<'user' | 'project'>, shouldIncludeInTools: false };
 
       // Get custom subagents from settings (merge global + project-level) only if enabled
       const customSubagents =
-        this.settingsService && subagentsConfig.enabled
-          ? await getCustomSubagents(this.settingsService, effectiveWorkDir)
+        settingsSvc && subagentsConfig.enabled
+          ? await getCustomSubagents(settingsSvc, effectiveWorkDir)
           : undefined;
 
       // Get credentials for API calls
-      const credentials = await this.settingsService?.getCredentials();
+      const credentials = await settingsSvc?.getCredentials();
 
       // Try to find a provider for the model (if it's a provider model like "GLM-4.7")
       // This allows users to select provider models in the Agent Runner UI
       let claudeCompatibleProvider: import('@automaker/types').ClaudeCompatibleProvider | undefined;
       let providerResolvedModel: string | undefined;
       const requestedModel = model || session.model;
-      if (requestedModel && this.settingsService) {
+      if (requestedModel && settingsSvc) {
         const providerResult = await getProviderByModelId(
           requestedModel,
-          this.settingsService,
+          settingsSvc,
           '[AgentService]'
         );
         if (providerResult.provider) {
@@ -434,7 +446,7 @@ export class AgentService {
       const contextFilesPrompt = filterClaudeMdFromContext(contextResult, autoLoadClaudeMd);
 
       // Build combined system prompt with base prompt and context files
-      const baseSystemPrompt = await this.getSystemPrompt();
+      const baseSystemPrompt = await this.getSystemPrompt(settingsSvc);
       combinedSystemPrompt = contextFilesPrompt
         ? `${contextFilesPrompt}\n\n${baseSystemPrompt}`
         : baseSystemPrompt;
@@ -451,7 +463,7 @@ export class AgentService {
       const sessionModelForSdk = providerResolvedModel ? undefined : session.model;
 
       // Read user-configured max turns from settings
-      const userMaxTurns = await getDefaultMaxTurnsSetting(this.settingsService, '[AgentService]');
+      const userMaxTurns = await getDefaultMaxTurnsSetting(settingsSvc, '[AgentService]');
 
       const sdkOptions = createChatOptions({
         cwd: effectiveWorkDir,
@@ -1237,9 +1249,9 @@ export class AgentService {
     this.events.emit('agent:stream', { sessionId, type: 'error', error });
   }
 
-  private async getSystemPrompt(): Promise<string> {
+  private async getSystemPrompt(settingsSvc: SettingsService | null): Promise<string> {
     // Load from settings (no caching - allows hot reload of custom prompts)
-    const prompts = await getPromptCustomization(this.settingsService, '[AgentService]');
+    const prompts = await getPromptCustomization(settingsSvc, '[AgentService]');
     return prompts.agent.systemPrompt;
   }
 

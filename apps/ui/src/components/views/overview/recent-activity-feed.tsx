@@ -5,8 +5,8 @@
  */
 
 import { useCallback } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useAppStore } from '@/store/app-store';
+import { router } from '@/utils/router';
 import { initializeProject } from '@/lib/project-init';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -112,7 +112,6 @@ function formatRelativeTime(timestamp: string): string {
 }
 
 export function RecentActivityFeed({ activities, maxItems = 10 }: RecentActivityFeedProps) {
-  const navigate = useNavigate();
   const { upsertAndSetCurrentProject } = useAppStore();
 
   const displayActivities = activities.slice(0, maxItems);
@@ -137,7 +136,7 @@ export function RecentActivityFeed({ activities, maxItems = 10 }: RecentActivity
 
         if (activity.featureId) {
           // Navigate to the specific feature with project path for deep link handling
-          navigate({
+          void router.navigate({
             to: '/board',
             search: {
               featureId: activity.featureId,
@@ -145,7 +144,7 @@ export function RecentActivityFeed({ activities, maxItems = 10 }: RecentActivity
             },
           });
         } else {
-          navigate({ to: '/board' });
+          void router.navigate({ to: '/board' });
         }
       } catch (error) {
         toast.error('Failed to navigate to activity', {
@@ -153,7 +152,7 @@ export function RecentActivityFeed({ activities, maxItems = 10 }: RecentActivity
         });
       }
     },
-    [navigate, upsertAndSetCurrentProject]
+    [upsertAndSetCurrentProject]
   );
 
   const handleActivityKeyDown = useCallback(

@@ -79,9 +79,7 @@ export async function handleLoginScreenIfPresent(page: Page): Promise<boolean> {
   const maxWaitMs = 3000;
 
   const appContent = page.locator(APP_CONTENT_SELECTOR);
-  const loginInput = page
-    .locator('[data-testid="login-api-key-input"], input[type="password"][placeholder*="API key"]')
-    .first();
+  const loginInput = page.locator('[data-testid="login-password-input"]').first();
   const loggedOutPage = page.getByRole('heading', { name: /logged out/i });
   const goToLoginButton = page.locator('button:has-text("Go to login")');
 
@@ -126,8 +124,13 @@ export async function handleLoginScreenIfPresent(page: Page): Promise<boolean> {
     // Wait for login input to be visible if we were redirected
     await loginInput.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
-    const apiKey = process.env.AUTOMAKER_API_KEY || 'test-api-key-for-e2e-tests';
-    await loginInput.fill(apiKey);
+    const e2eUser = process.env.E2E_WEB_USERNAME || 'e2e';
+    const e2ePass = process.env.E2E_WEB_PASSWORD || 'e2e-test-password';
+    const usernameInput = page.locator('[data-testid="login-username-input"]');
+    if (await usernameInput.isVisible().catch(() => false)) {
+      await usernameInput.fill(e2eUser);
+    }
+    await loginInput.fill(e2ePass);
 
     // Wait for button to be enabled (it's disabled when input is empty)
     const loginButton = page

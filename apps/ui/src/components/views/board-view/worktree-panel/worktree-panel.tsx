@@ -1,11 +1,11 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { GitBranch, Plus, RefreshCw } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { pathsEqual } from '@/lib/utils';
 import { toast } from 'sonner';
 import { getHttpApiClient } from '@/lib/http-api-client';
+import { router } from '@/utils/router';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { useWorktreeInitScript, useProjectSettings } from '@/hooks/queries';
 import { useTestRunnerEvents } from '@/hooks/use-test-runners';
@@ -322,10 +322,9 @@ export function WorktreePanel({
   }, [projectSettings?.terminalScripts]);
 
   // Navigate to project settings to edit scripts
-  const navigate = useNavigate();
   const handleEditScripts = useCallback(() => {
-    navigate({ to: '/project-settings', search: { section: 'commands-scripts' } });
-  }, [navigate]);
+    void router.navigate({ to: '/project-settings', search: { section: 'commands-scripts' } });
+  }, []);
 
   // Test runner state management
   // Use the test runners store to get global state for all worktrees

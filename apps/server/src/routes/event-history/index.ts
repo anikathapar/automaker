@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import type { EventHistoryService } from '../../services/event-history-service.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import { validatePathParams } from '../../middleware/validate-paths.js';
 import { createListHandler } from './routes/list.js';
 import { createGetHandler } from './routes/get.js';
@@ -32,12 +32,12 @@ import { createReplayHandler } from './routes/replay.js';
  * - POST /replay - Replay an event to trigger hooks
  *
  * @param eventHistoryService - Instance of EventHistoryService
- * @param settingsService - Instance of SettingsService (for replay)
+ * @param resolveSettingsService - Per-request SettingsService (for replay)
  * @returns Express Router configured with all event history endpoints
  */
 export function createEventHistoryRoutes(
   eventHistoryService: EventHistoryService,
-  settingsService: SettingsService
+  resolveSettingsService: SettingsServiceFactory
 ): Router {
   const router = Router();
 
@@ -61,7 +61,7 @@ export function createEventHistoryRoutes(
   router.post(
     '/replay',
     validatePathParams('projectPath'),
-    createReplayHandler(eventHistoryService, settingsService)
+    createReplayHandler(eventHistoryService, resolveSettingsService)
   );
 
   return router;

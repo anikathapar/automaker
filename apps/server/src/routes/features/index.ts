@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { FeatureLoader } from '../../services/feature-loader.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import type { AutoModeServiceCompat } from '../../services/auto-mode/index.js';
 import type { EventEmitter } from '../../lib/events.js';
 import { validatePathParams } from '../../middleware/validate-paths.js';
@@ -27,7 +27,7 @@ import {
 
 export function createFeaturesRoutes(
   featureLoader: FeatureLoader,
-  settingsService?: SettingsService,
+  resolveSettingsService?: SettingsServiceFactory,
   events?: EventEmitter,
   autoModeService?: AutoModeServiceCompat
 ): Router {
@@ -67,7 +67,7 @@ export function createFeaturesRoutes(
   router.post('/delete', validatePathParams('projectPath'), createDeleteHandler(featureLoader));
   router.post('/agent-output', createAgentOutputHandler(featureLoader));
   router.post('/raw-output', createRawOutputHandler(featureLoader));
-  router.post('/generate-title', createGenerateTitleHandler(settingsService));
+  router.post('/generate-title', createGenerateTitleHandler(resolveSettingsService));
   router.post('/export', validatePathParams('projectPath'), createExportHandler(featureLoader));
   router.post('/import', validatePathParams('projectPath'), createImportHandler(featureLoader));
   router.post(

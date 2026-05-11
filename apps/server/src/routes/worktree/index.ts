@@ -70,12 +70,12 @@ import { createCheckChangesHandler } from './routes/check-changes.js';
 import { createSetTrackingHandler } from './routes/set-tracking.js';
 import { createSyncHandler } from './routes/sync.js';
 import { createUpdatePRNumberHandler } from './routes/update-pr-number.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 import type { FeatureLoader } from '../../services/feature-loader.js';
 
 export function createWorktreeRoutes(
   events: EventEmitter,
-  settingsService?: SettingsService,
+  resolveSettingsService?: SettingsServiceFactory,
   featureLoader?: FeatureLoader
 ): Router {
   const router = Router();
@@ -94,7 +94,7 @@ export function createWorktreeRoutes(
   router.post(
     '/create',
     validatePathParams('projectPath'),
-    createCreateHandler(events, settingsService)
+    createCreateHandler(events, resolveSettingsService)
   );
   router.post(
     '/delete',
@@ -119,7 +119,7 @@ export function createWorktreeRoutes(
     '/generate-commit-message',
     validatePathParams('worktreePath'),
     requireGitRepoOnly,
-    createGenerateCommitMessageHandler(settingsService)
+    createGenerateCommitMessageHandler(resolveSettingsService)
   );
   router.post(
     '/push',
@@ -194,7 +194,7 @@ export function createWorktreeRoutes(
   router.post(
     '/start-dev',
     validatePathParams('projectPath', 'worktreePath'),
-    createStartDevHandler(settingsService)
+    createStartDevHandler(resolveSettingsService)
   );
   router.post('/stop-dev', createStopDevHandler());
   router.post('/list-dev-servers', createListDevServersHandler());
@@ -208,7 +208,7 @@ export function createWorktreeRoutes(
   router.post(
     '/start-tests',
     validatePathParams('worktreePath', 'projectPath?'),
-    createStartTestsHandler(settingsService)
+    createStartTestsHandler(resolveSettingsService)
   );
   router.post('/stop-tests', createStopTestsHandler());
   router.get('/test-logs', validatePathParams('worktreePath?'), createGetTestLogsHandler());
@@ -294,7 +294,7 @@ export function createWorktreeRoutes(
     '/generate-pr-description',
     validatePathParams('worktreePath'),
     requireGitRepoOnly,
-    createGeneratePRDescriptionHandler(settingsService)
+    createGeneratePRDescriptionHandler(resolveSettingsService)
   );
 
   // Branch commit log route (get commits from a specific branch)

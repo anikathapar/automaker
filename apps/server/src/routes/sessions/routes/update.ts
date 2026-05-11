@@ -4,12 +4,17 @@
 
 import type { Request, Response } from 'express';
 import { AgentService } from '../../../services/agent-service.js';
+import { paramString } from '../../common.js';
 import { getErrorMessage, logError } from '../common.js';
 
 export function createUpdateHandler(agentService: AgentService) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
-      const { sessionId } = req.params;
+      const sessionId = paramString(req.params.sessionId);
+      if (!sessionId) {
+        res.status(400).json({ success: false, error: 'sessionId is required' });
+        return;
+      }
       const { name, tags, model } = req.body as {
         name?: string;
         tags?: string[];

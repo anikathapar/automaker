@@ -56,7 +56,8 @@ async function authenticateAndSaveState(_config: FullConfig) {
   // Ensure auth directory exists
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 
-  const apiKey = process.env.AUTOMAKER_API_KEY || 'test-api-key-for-e2e-tests';
+  const e2eUsername = process.env.E2E_WEB_USERNAME || 'e2e';
+  const e2ePassword = process.env.E2E_WEB_PASSWORD || 'e2e-test-password';
 
   // Wait for backend to be ready (exponential backoff: 250ms → 500ms → 1s → 2s)
   const start = Date.now();
@@ -90,9 +91,9 @@ async function authenticateAndSaveState(_config: FullConfig) {
     // Navigate to the app first (needed for cookies to bind to the correct domain)
     await page.goto(WEB_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // Login via API
+    // Login via API (users.json in Playwright DATA_DIR — see tests/.e2e-server-data)
     const loginResponse = await page.request.post(`${API_BASE_URL}/api/auth/login`, {
-      data: { apiKey },
+      data: { username: e2eUsername, password: e2ePassword },
       headers: { 'Content-Type': 'application/json' },
       timeout: 15000,
     });
@@ -104,7 +105,8 @@ async function authenticateAndSaveState(_config: FullConfig) {
     if (!response?.success || !response.token) {
       throw new Error(
         '[GlobalSetup] Login failed - cannot proceed without authentication. ' +
-          'Check that the backend is running and AUTOMAKER_API_KEY is set correctly.'
+          'Ensure the test server uses DATA_DIR with tests/.e2e-server-data/users.json, ' +
+          'or set E2E_WEB_USERNAME / E2E_WEB_PASSWORD to match your users.'
       );
     }
 

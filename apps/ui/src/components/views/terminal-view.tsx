@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { createLogger } from '@automaker/utils/logger';
+import { router } from '@/utils/router';
 import {
   Terminal as TerminalIcon,
   Plus,
@@ -282,8 +282,6 @@ export function TerminalView({
     currentWorktreeByProject,
     worktreesByProject,
   } = useAppStore();
-
-  const navigate = useNavigate();
 
   const [status, setStatus] = useState<TerminalStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -648,7 +646,7 @@ export function TerminalView({
           fetchServerSettings();
 
           // Clear the cwd from the URL to prevent re-creating on refresh
-          navigate({ to: '/terminal', search: {}, replace: true });
+          void router.navigate({ to: '/terminal', search: {}, replace: true });
         } else {
           logger.error('Failed to create terminal for cwd:', data.error);
           toast.error('Failed to create terminal', {
@@ -684,7 +682,6 @@ export function TerminalView({
     addTerminalToLayout,
     addTerminalTab,
     fetchServerSettings,
-    navigate,
   ]);
 
   // Handle project switching - save and restore terminal layouts

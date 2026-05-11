@@ -1,10 +1,8 @@
-import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
+import { router } from '@/utils/router';
 
 export function LoggedOutView() {
-  const navigate = useNavigate();
-
   return (
     <div className="flex min-h-full items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
@@ -19,7 +17,7 @@ export function LoggedOutView() {
         </div>
 
         <div className="space-y-3">
-          <Button className="w-full" onClick={() => navigate({ to: '/login' })}>
+          <Button className="w-full" onClick={() => void router.navigate({ to: '/login' })}>
             Go to login
           </Button>
         </div>

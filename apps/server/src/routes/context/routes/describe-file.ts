@@ -17,7 +17,7 @@ import { resolvePhaseModel } from '@automaker/model-resolver';
 import { simpleQuery } from '../../../providers/simple-query-service.js';
 import * as secureFs from '../../../lib/secure-fs.js';
 import * as path from 'path';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import {
   getAutoLoadClaudeMdSetting,
   getPromptCustomization,
@@ -53,14 +53,16 @@ interface DescribeFileErrorResponse {
 /**
  * Create the describe-file request handler
  *
- * @param settingsService - Optional settings service for loading autoLoadClaudeMd setting
+ * @param resolveSettingsService - Per-request settings (scoped credentials when logged in)
  * @returns Express request handler for file description
  */
 export function createDescribeFileHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { filePath } = req.body as DescribeFileRequestBody;
 
       // Validate required fields

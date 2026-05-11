@@ -13,16 +13,21 @@ import {
   getErrorMessage,
 } from '../common.js';
 import { syncSpec } from '../sync-spec.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 
 const logger = createLogger('SpecSync');
 
-export function createSyncHandler(events: EventEmitter, settingsService?: SettingsService) {
+export function createSyncHandler(
+  events: EventEmitter,
+  resolveSettingsService?: SettingsServiceFactory
+) {
   return async (req: Request, res: Response): Promise<void> => {
     logger.info('========== /sync endpoint called ==========');
     logger.debug('Request body:', JSON.stringify(req.body, null, 2));
 
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { projectPath } = req.body as {
         projectPath: string;
       };

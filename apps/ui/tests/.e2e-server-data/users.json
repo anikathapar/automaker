@@ -1,0 +1,8 @@
+[
+  {
+    "id": "e2e-test-user-id",
+    "username": "e2e",
+    "passwordHash": "$2b$12$blFkkuBSQqz6N3dlHMFzA.IEubNY4Oiy2zGXTBK9EfInFWzDTjvJ6",
+    "createdAt": 1714003200000
+  }
+]

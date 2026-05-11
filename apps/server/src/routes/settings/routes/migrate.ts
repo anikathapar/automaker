@@ -31,18 +31,19 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getErrorMessage, logError, logger } from '../common.js';
 
 /**
  * Create handler factory for POST /api/settings/migrate
  *
- * @param settingsService - Instance of SettingsService for file I/O
+ * @param resolveSettingsService - Per-request SettingsService (global settings + scoped credentials)
  * @returns Express request handler
  */
-export function createMigrateHandler(settingsService: SettingsService) {
+export function createMigrateHandler(resolveSettingsService: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
       const { data } = req.body as {
         data?: {
           'automaker-storage'?: string;

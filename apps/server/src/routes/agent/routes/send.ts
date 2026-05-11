@@ -6,10 +6,14 @@ import type { Request, Response } from 'express';
 import type { ThinkingLevel } from '@automaker/types';
 import { AgentService } from '../../../services/agent-service.js';
 import { createLogger } from '@automaker/utils';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getErrorMessage, logError } from '../common.js';
 const logger = createLogger('Agent');
 
-export function createSendHandler(agentService: AgentService) {
+export function createSendHandler(
+  agentService: AgentService,
+  resolveSettingsService: SettingsServiceFactory
+) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
       const { sessionId, message, workingDirectory, imagePaths, model, thinkingLevel } =
@@ -42,6 +46,8 @@ export function createSendHandler(agentService: AgentService) {
 
       logger.debug('Validation passed, calling agentService.sendMessage()');
 
+      const settingsService = resolveSettingsService(req);
+
       // Start the message processing (don't await - it streams via WebSocket)
       agentService
         .sendMessage({
@@ -51,6 +57,7 @@ export function createSendHandler(agentService: AgentService) {
           imagePaths,
           model,
           thinkingLevel,
+          settingsService,
         })
         .catch((error) => {
           const errorMsg = (error as Error).message || 'Unknown error';

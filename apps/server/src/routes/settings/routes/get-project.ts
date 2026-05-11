@@ -9,18 +9,19 @@
  */
 
 import type { Request, Response } from 'express';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getErrorMessage, logError } from '../common.js';
 
 /**
  * Create handler factory for POST /api/settings/project
  *
- * @param settingsService - Instance of SettingsService for file I/O
+ * @param resolveSettingsService - Per-request SettingsService (global settings + scoped credentials)
  * @returns Express request handler
  */
-export function createGetProjectHandler(settingsService: SettingsService) {
+export function createGetProjectHandler(resolveSettingsService: SettingsServiceFactory) {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService(req);
       const { projectPath } = req.body as { projectPath?: string };
 
       if (!projectPath || typeof projectPath !== 'string') {

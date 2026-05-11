@@ -17,8 +17,8 @@ import {
 import { createLogger } from '@automaker/utils/logger';
 import { resolveModelString } from '@automaker/model-resolver';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { useAppStore } from '@/store/app-store';
+import { router } from '@/utils/router';
 import { getElectronAPI } from '@/lib/electron';
 import { cn, generateUUID, pathsEqual } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
@@ -125,7 +125,6 @@ export function FileEditorView({ initialPath }: FileEditorViewProps) {
     currentProject?.path ? (s.currentWorktreeByProject[currentProject.path] ?? null) : null
   );
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   // Read persisted editor font settings from app store
   const editorFontSize = useAppStore((s) => s.editorFontSize);
   const editorFontFamily = useAppStore((s) => s.editorFontFamily);
@@ -787,7 +786,7 @@ export function FileEditorView({ initialPath }: FileEditorViewProps) {
               {
                 action: {
                   label: 'View Board',
-                  onClick: () => navigate({ to: '/board' }),
+                  onClick: () => void router.navigate({ to: '/board' }),
                 },
               }
             );
@@ -802,7 +801,7 @@ export function FileEditorView({ initialPath }: FileEditorViewProps) {
         toast.error(err instanceof Error ? err.message : 'Failed to create feature');
       }
     },
-    [currentProject?.path, currentBranch, queryClient, navigate]
+    [currentProject?.path, currentBranch, queryClient]
   );
 
   // ─── File Operations ─────────────────────────────────────────

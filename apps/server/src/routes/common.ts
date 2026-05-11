@@ -36,3 +36,11 @@ export function createLogError(logger: Logger) {
     logger.error(`❌ ${context}:`, error);
   };
 }
+
+/**
+ * Express 5 types dynamic route params as string | string[]. Normalize to a single string.
+ */
+export function paramString(value: string | string[] | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value[0] : value;
+}

@@ -13,19 +13,21 @@ import {
   getErrorMessage,
 } from '../common.js';
 import { generateFeaturesFromSpec } from '../generate-features-from-spec.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 
 const logger = createLogger('SpecRegeneration');
 
 export function createGenerateFeaturesHandler(
   events: EventEmitter,
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ) {
   return async (req: Request, res: Response): Promise<void> => {
     logger.info('========== /generate-features endpoint called ==========');
     logger.debug('Request body:', JSON.stringify(req.body, null, 2));
 
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { projectPath, maxFeatures } = req.body as {
         projectPath: string;
         maxFeatures?: number;

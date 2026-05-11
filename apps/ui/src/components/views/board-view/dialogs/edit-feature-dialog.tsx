@@ -22,8 +22,8 @@ import {
   ImagePreviewMap,
 } from '@/components/ui/description-image-dropzone';
 import { GitBranch, Cpu, FolderKanban, Settings2 } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { router } from '@/utils/router';
 import { cn, migrateModelId, normalizeModelEntry } from '@/lib/utils';
 import { Feature, ModelAlias, ThinkingLevel, PlanningMode } from '@/store/app-store';
 import type { ReasoningEffort, PhaseModelEntry, DescriptionHistoryEntry } from '@automaker/types';
@@ -90,7 +90,6 @@ export function EditFeatureDialog({
   allFeatures,
   projectPath,
 }: EditFeatureDialogProps) {
-  const navigate = useNavigate();
   const [editingFeature, setEditingFeature] = useState<Feature | null>(feature);
   // Derive initial workMode from feature's branchName
   const [workMode, setWorkMode] = useState<WorkMode>(() => {
@@ -427,7 +426,7 @@ export function EditFeatureDialog({
                     type="button"
                     onClick={() => {
                       onClose();
-                      navigate({ to: '/settings', search: { view: 'defaults' } });
+                      void router.navigate({ to: '/settings', search: { view: 'defaults' } });
                     }}
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >

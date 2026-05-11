@@ -20,6 +20,7 @@ const extraPath =
       ].filter(Boolean);
 const e2eServerPath = [process.env.PATH, ...extraPath].filter(Boolean).join(pathSeparator);
 const serverPort = process.env.TEST_SERVER_PORT || 3108;
+const e2eServerDataDir = path.join(__dirname, 'tests', '.e2e-server-data');
 // When true, no webServer is started; you must run UI (port 3107) and server (3108) yourself.
 const reuseServer = process.env.TEST_REUSE_SERVER === 'true';
 // Only skip backend startup when explicitly requested for E2E runs.
@@ -73,17 +74,18 @@ export default defineConfig({
                 {
                   command: `cd ../server && npm run dev:test`,
                   url: `http://127.0.0.1:${serverPort}/api/health`,
-                  // Don't reuse existing server to ensure we use the test API key
+                  // Don't reuse existing server so each run uses the E2E DATA_DIR + users.json
                   reuseExistingServer: false,
                   timeout: 60000,
                   env: {
                     ...process.env,
                     PORT: String(serverPort),
+                    DATA_DIR: e2eServerDataDir,
                     // Ensure server can find git in CI/minimal env (worktree list, etc.)
                     PATH: e2eServerPath,
                     // Enable mock agent in CI to avoid real API calls
                     AUTOMAKER_MOCK_AGENT: mockAgent ? 'true' : 'false',
-                    // Set a test API key for web mode authentication
+                    // Stable X-API-Key for any tests that send the header (web login uses users.json)
                     AUTOMAKER_API_KEY:
                       process.env.AUTOMAKER_API_KEY || 'test-api-key-for-e2e-tests',
                     // Hide the API key banner to reduce log noise

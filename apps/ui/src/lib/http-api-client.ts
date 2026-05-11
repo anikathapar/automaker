@@ -33,6 +33,7 @@ import type {
   EventHistoryAPI,
   CreatePROptions,
 } from './electron';
+import { clearLocalUserCredentials } from './local-user-credentials';
 import type {
   IdeationContextSources,
   EventHistoryFilter,
@@ -53,6 +54,12 @@ import { getGlobalFileBrowser } from '@/contexts/file-browser-context';
 
 const logger = createLogger('HttpClient');
 const NO_STORE_CACHE_MODE: RequestCache = 'no-store';
+
+/** Optional behavior for {@link HttpApiClient.get} (e.g. bootstrap probes before auth is known). */
+export type HttpGetOptions = {
+  /** When true, 401/403 does not call {@link handleUnauthorized} (avoids logout storm on login page). */
+  suppressUnauthorizedEvent?: boolean;
+};
 
 /**
  * Notify the UI that the current session is no longer valid.
@@ -288,44 +295,134 @@ export const initApiKey = async (): Promise<void> => {
   return apiKeyInitPromise;
 };
 
-/**
- * Check authentication status with the server
- */
-export const checkAuthStatus = async (): Promise<{
+export type AuthStatusPayload = {
   authenticated: boolean;
   required: boolean;
-}> => {
+  /** Always true: self-service POST /api/auth/register is always available. */
+  registrationOpen?: boolean;
+  user?: { sub: string; email?: string };
+  authSource?: string;
+};
+
+/**
+ * Check authentication status with the server.
+ * @param options.credentialEntry - Send header so login page is not auto-minted a session when dev auto-login is on.
+ */
+export const checkAuthStatus = async (options?: {
+  credentialEntry?: boolean;
+}): Promise<AuthStatusPayload> => {
   try {
+    await waitForApiKeyInit();
+    const headers: Record<string, string> = {};
+    if (options?.credentialEntry) {
+      headers['X-Automaker-Credential-Entry'] = 'true';
+    }
+    const apiKey = getApiKey();
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+    const sessionToken = getSessionToken();
+    if (sessionToken) {
+      headers['X-Session-Token'] = sessionToken;
+    }
     const response = await fetch(`${getServerUrl()}/api/auth/status`, {
       credentials: 'include',
-      headers: getApiKey() ? { 'X-API-Key': getApiKey()! } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       cache: NO_STORE_CACHE_MODE,
     });
     const data = await response.json();
     return {
       authenticated: data.authenticated ?? false,
       required: data.required ?? true,
+      registrationOpen: true,
+      user: data.user,
+      authSource: data.authSource,
     };
   } catch (error) {
     logger.error('Failed to check auth status:', error);
-    return { authenticated: false, required: true };
+    return { authenticated: false, required: true, registrationOpen: true };
+  }
+};
+
+/** How the browser client is expected to authenticate on subsequent requests. */
+export type ClientAuthMode = 'session' | 'api-key-header';
+
+/**
+ * Bootstrap helper: waits for auth client init, then returns auth status plus a coarse mode.
+ * `session` = cookie (and optional X-Session-Token) web flow; `api-key-header` = Electron-style key.
+ */
+export async function fetchAuthMode(): Promise<{
+  mode: ClientAuthMode;
+  authenticated: boolean;
+  required: boolean;
+}> {
+  await waitForApiKeyInit();
+  const status = await checkAuthStatus();
+  const mode: ClientAuthMode = getApiKey() ? 'api-key-header' : 'session';
+  return { mode, ...status };
+}
+
+export type WebLoginCredentials = { username: string; password: string };
+
+/**
+ * Self-service registration (same session handling as login).
+ */
+export const registerWebUser = async (input: {
+  username: string;
+  password: string;
+}): Promise<{ success: boolean; error?: string; token?: string }> => {
+  try {
+    const response = await fetch(`${getServerUrl()}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        username: input.username.trim(),
+        password: input.password,
+      }),
+      cache: NO_STORE_CACHE_MODE,
+    });
+    const data = await response.json();
+    if (data.success && data.token) {
+      setSessionToken(data.token);
+      const verified = await verifySession();
+      if (!verified) {
+        return {
+          success: false,
+          error: 'Session verification failed. Please try again.',
+        };
+      }
+    }
+    return data;
+  } catch (error) {
+    logger.error('Registration failed:', error);
+    return { success: false, error: 'Network error' };
   }
 };
 
 /**
- * Login with API key (for web mode)
- * After login succeeds, verifies the session is actually working by making
- * a request to an authenticated endpoint.
+ * Login (web mode): username + password validated against server `users.json`.
+ * After login succeeds, verifies the session via GET /api/auth/status.
  */
 export const login = async (
-  apiKey: string
-): Promise<{ success: boolean; error?: string; token?: string }> => {
+  credentials: WebLoginCredentials
+): Promise<{
+  success: boolean;
+  error?: string;
+  token?: string;
+  registrationOpen?: boolean;
+}> => {
   try {
+    const body = {
+      username: credentials.username.trim(),
+      password: credentials.password,
+    };
+
     const response = await fetch(`${getServerUrl()}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify(body),
       cache: NO_STORE_CACHE_MODE,
     });
     const data = await response.json();
@@ -335,7 +432,6 @@ export const login = async (
       setSessionToken(data.token);
       logger.info('Session token stored after login');
 
-      // Verify the session is actually working by making a request to an authenticated endpoint
       const verified = await verifySession();
       if (!verified) {
         logger.error('Login appeared successful but session verification failed');
@@ -404,6 +500,8 @@ export const logout = async (): Promise<{ success: boolean }> => {
     clearSessionToken();
     logger.info('Session token cleared on logout');
 
+    clearLocalUserCredentials();
+
     return await response.json();
   } catch (error) {
     logger.error('Logout failed:', error);
@@ -412,20 +510,21 @@ export const logout = async (): Promise<{ success: boolean }> => {
 };
 
 /**
- * Verify that the current session is still valid by making a request to an authenticated endpoint.
- * If the session has expired or is invalid, clears the session and returns false.
- * This should be called:
- * 1. After login to verify the cookie was set correctly
- * 2. On app load to verify the session hasn't expired
+ * Verify whether the current request is authenticated (cookie, session header, or API key).
+ * Uses GET /api/auth/status (always 200 when the server is up) — unlike /api/settings/*,
+ * unauthenticated users do not get 401 here, so the HTTP client never fires a false logout.
  *
  * Returns:
- * - true: Session is valid
- * - false: Session is definitively invalid (401/403 auth failure)
+ * - true: Session / API key is valid
+ * - false: Not authenticated (stale in-memory token is cleared)
  * - throws: Network error or server not ready (caller should retry)
  */
 export const verifySession = async (): Promise<boolean> => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    // Session probe only: do not auto-mint a session when AUTOMAKER_SKIP_WEB_AUTH is set,
+    // so the login page can stay on the credential form.
+    'X-Automaker-Credential-Entry': 'true',
   };
 
   // Electron mode: use API key header
@@ -440,32 +539,30 @@ export const verifySession = async (): Promise<boolean> => {
     headers['X-Session-Token'] = sessionToken;
   }
 
-  // Make a request to an authenticated endpoint to verify the session
-  // We use /api/settings/status as it requires authentication and is lightweight
-  // Note: fetch throws on network errors, which we intentionally let propagate
-  const response = await fetch(`${getServerUrl()}/api/settings/status`, {
+  const response = await fetch(`${getServerUrl()}/api/auth/status`, {
     headers,
     credentials: 'include',
     cache: NO_STORE_CACHE_MODE,
-    // Avoid hanging indefinitely during backend reloads or network issues
     signal: AbortSignal.timeout(2500),
   });
 
-  // Check for authentication errors - these are definitive "invalid session" responses
-  if (response.status === 401 || response.status === 403) {
-    logger.warn('Session verification failed - session expired or invalid');
-    // Clear the in-memory/localStorage session token since it's no longer valid
-    // Note: We do NOT call logout here - that would destroy a potentially valid
-    // cookie if the issue was transient (e.g., token not sent due to timing)
-    clearSessionToken();
-    return false;
-  }
-
-  // For other non-ok responses (5xx, etc.), throw to trigger retry
   if (!response.ok) {
     const error = new Error(`Session verification failed with status: ${response.status}`);
     logger.warn('Session verification failed with status:', response.status);
     throw error;
+  }
+
+  let data: { authenticated?: boolean };
+  try {
+    data = (await response.json()) as { authenticated?: boolean };
+  } catch {
+    throw new Error('Session verification: invalid JSON from /api/auth/status');
+  }
+
+  if (!data.authenticated) {
+    logger.warn('Session verification: not authenticated');
+    clearSessionToken();
+    return false;
   }
 
   logger.info('Session verified successfully');
@@ -928,7 +1025,7 @@ export class HttpApiClient implements ElectronAPI {
     return response.json();
   }
 
-  async get<T>(endpoint: string): Promise<T> {
+  async get<T>(endpoint: string, options?: HttpGetOptions): Promise<T> {
     // Ensure API key is initialized before making request
     await waitForApiKeyInit();
     const response = await fetch(`${this.serverUrl}${endpoint}`, {
@@ -938,7 +1035,9 @@ export class HttpApiClient implements ElectronAPI {
     });
 
     if (response.status === 401 || response.status === 403) {
-      handleUnauthorized();
+      if (!options?.suppressUnauthorizedEvent) {
+        handleUnauthorized();
+      }
       throw new Error('Unauthorized');
     }
 
@@ -2603,7 +2702,9 @@ export class HttpApiClient implements ElectronAPI {
     }> => this.get('/api/settings/status'),
 
     // Global settings
-    getGlobal: (): Promise<{
+    getGlobal: (
+      options?: HttpGetOptions
+    ): Promise<{
       success: boolean;
       settings?: {
         version: number;
@@ -2656,7 +2757,7 @@ export class HttpApiClient implements ElectronAPI {
         }>;
       };
       error?: string;
-    }> => this.get('/api/settings/global'),
+    }> => this.get('/api/settings/global', options),
 
     updateGlobal: (
       updates: Record<string, unknown>

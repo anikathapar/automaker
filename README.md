@@ -393,7 +393,8 @@ npm run lint
 
 - `VITE_SKIP_ELECTRON` - Legacy flag for browser-only UI builds (Docker / CI)
 - `AUTOMAKER_SKIP_SANDBOX_WARNING` - Skip sandbox warning dialog (useful for dev/CI)
-- `AUTOMAKER_AUTO_LOGIN=true` - Skip login prompt in development (ignored when NODE_ENV=production)
+- `AUTOMAKER_AUTO_LOGIN=true` - Skip web login in development only (ignored when `NODE_ENV=production`)
+- `AUTOMAKER_SKIP_WEB_AUTH=true` - Skip web API-key login in production too; only for trusted/private deploys (see `CLAUDE.md`)
 
 ### Authentication Setup
 

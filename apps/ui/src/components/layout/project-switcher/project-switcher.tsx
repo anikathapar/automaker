@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, startTransition } from 'react';
 import { Plus, Bug, FolderOpen, BookOpen } from 'lucide-react';
-import { useNavigate, useLocation } from '@tanstack/react-router';
+import { useLocation } from '@tanstack/react-router';
+import type { NavigateOptions } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store/app-store';
 import { useOSDetection } from '@/hooks/use-os-detection';
@@ -18,6 +19,7 @@ import { initializeProject, hasAppSpec, hasAutomakerDir } from '@/lib/project-in
 import { toast } from 'sonner';
 import { CreateSpecDialog } from '@/components/views/spec-view/dialogs';
 import type { FeatureCount } from '@/components/views/spec-view/types';
+import { router } from '@/utils/router';
 
 function getOSAbbreviation(os: string): string {
   switch (os) {
@@ -33,7 +35,9 @@ function getOSAbbreviation(os: string): string {
 }
 
 export function ProjectSwitcher() {
-  const navigate = useNavigate();
+  const navigate = useCallback((opts: NavigateOptions) => {
+    void router.navigate(opts);
+  }, []);
   const location = useLocation();
   const { hideWiki } = SIDEBAR_FEATURE_FLAGS;
   const isWikiActive = location.pathname === '/wiki';
@@ -297,12 +301,7 @@ export function ProjectSwitcher() {
         data-testid="project-switcher"
       >
         {/* Automaker Logo and Version */}
-        <div
-          className={cn(
-            'flex flex-col items-center pb-2 px-2',
-            'pt-3'
-          )}
-        >
+        <div className={cn('flex flex-col items-center pb-2 px-2', 'pt-3')}>
           <button
             onClick={() => navigate({ to: '/dashboard' })}
             className="group flex flex-col items-center gap-0.5"

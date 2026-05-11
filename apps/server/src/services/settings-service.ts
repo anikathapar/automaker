@@ -3,7 +3,7 @@
  *
  * Provides persistent storage for:
  * - Global settings (DATA_DIR/settings.json)
- * - Credentials (DATA_DIR/credentials.json)
+ * - Credentials (credentialsDataDir/credentials.json, defaulting to dataDir)
  * - Per-project settings ({projectPath}/.automaker/settings.json)
  */
 
@@ -97,7 +97,9 @@ async function writeSettingsJson(filePath: string, data: unknown): Promise<void>
  * Handles reading and writing settings to JSON files with atomic operations
  * for reliability. Provides three levels of settings:
  * - Global settings: shared preferences in {dataDir}/settings.json
- * - Credentials: sensitive API keys in {dataDir}/credentials.json
+ * - Credentials: sensitive API keys in {credentialsDataDir}/credentials.json (defaults to dataDir)
+ * - Web onboarding: when credentialsDataDir is per-user, wizard flags live in
+ *   {credentialsDataDir}/onboarding.json so each account runs setup independently.
  * - Project settings: per-project overrides in {projectPath}/.automaker/settings.json
  *
  * All operations are atomic (write to temp file, then rename) to prevent corruption.
@@ -106,14 +108,69 @@ async function writeSettingsJson(filePath: string, data: unknown): Promise<void>
  */
 export class SettingsService {
   private dataDir: string;
+  private credentialsDataDir: string;
 
   /**
    * Create a new SettingsService instance
    *
    * @param dataDir - Absolute path to global data directory (e.g., ~/.automaker)
+   * @param options.credentialsDataDir - Optional override for credentials.json only (e.g. per-user `DATA_DIR/users/<id>`)
    */
-  constructor(dataDir: string) {
+  constructor(dataDir: string, options?: { credentialsDataDir?: string }) {
     this.dataDir = dataDir;
+    this.credentialsDataDir = options?.credentialsDataDir ?? dataDir;
+  }
+
+  private isPerUserCredentials(): boolean {
+    return this.credentialsDataDir !== this.dataDir;
+  }
+
+  private getWebUserOnboardingPath(): string {
+    return path.join(this.credentialsDataDir, 'onboarding.json');
+  }
+
+  private hasMeaningfulApiKeys(credentials: Credentials): boolean {
+    const keys = credentials.apiKeys;
+    if (!keys) return false;
+    return Object.values(keys).some((v) => typeof v === 'string' && v.trim().length > 0);
+  }
+
+  /**
+   * Web accounts share `settings.json` for most fields; overlay setup wizard state from
+   * per-user `onboarding.json`, or treat missing file + empty credentials as first-run.
+   */
+  private async applyWebUserOnboardingOverlay(result: GlobalSettings): Promise<GlobalSettings> {
+    if (!this.isPerUserCredentials()) return result;
+    const onboardingPath = this.getWebUserOnboardingPath();
+    if (await fileExists(onboardingPath)) {
+      const ob = await readJsonFile<{
+        setupComplete?: boolean;
+        isFirstRun?: boolean;
+        skipClaudeSetup?: boolean;
+      }>(onboardingPath, {});
+      const hasAnyField =
+        ob.setupComplete !== undefined ||
+        ob.isFirstRun !== undefined ||
+        ob.skipClaudeSetup !== undefined;
+      if (hasAnyField) {
+        return {
+          ...result,
+          ...(ob.setupComplete !== undefined ? { setupComplete: !!ob.setupComplete } : {}),
+          ...(ob.isFirstRun !== undefined ? { isFirstRun: !!ob.isFirstRun } : {}),
+          ...(ob.skipClaudeSetup !== undefined ? { skipClaudeSetup: !!ob.skipClaudeSetup } : {}),
+        };
+      }
+    }
+    const credentials = await this.getCredentials();
+    if (this.hasMeaningfulApiKeys(credentials)) {
+      return result;
+    }
+    return {
+      ...result,
+      setupComplete: false,
+      isFirstRun: true,
+      skipClaudeSetup: false,
+    };
   }
 
   // ============================================================================
@@ -255,7 +312,7 @@ export class SettingsService {
       }
     }
 
-    return result;
+    return this.applyWebUserOnboardingOverlay(result);
   }
 
   /**
@@ -711,7 +768,27 @@ export class SettingsService {
       updated.autoModeByWorktree = mergedAutoModeByWorktree;
     }
 
-    await writeSettingsJson(settingsPath, updated);
+    if (this.isPerUserCredentials()) {
+      await ensureDataDir(this.credentialsDataDir);
+      const onboardingPath = this.getWebUserOnboardingPath();
+      await writeSettingsJson(onboardingPath, {
+        setupComplete: updated.setupComplete,
+        isFirstRun: updated.isFirstRun,
+        skipClaudeSetup: updated.skipClaudeSetup,
+      });
+
+      const diskGlobal = await readJsonFile<GlobalSettings>(settingsPath, DEFAULT_GLOBAL_SETTINGS);
+      const forGlobalDisk: GlobalSettings = {
+        ...updated,
+        setupComplete: diskGlobal.setupComplete,
+        isFirstRun: diskGlobal.isFirstRun,
+        skipClaudeSetup: diskGlobal.skipClaudeSetup,
+      };
+      await writeSettingsJson(settingsPath, forGlobalDisk);
+    } else {
+      await writeSettingsJson(settingsPath, updated);
+    }
+
     logger.info('Global settings updated');
 
     return updated;
@@ -743,7 +820,7 @@ export class SettingsService {
    * @returns Promise resolving to complete Credentials object
    */
   async getCredentials(): Promise<Credentials> {
-    const credentialsPath = getCredentialsPath(this.dataDir);
+    const credentialsPath = getCredentialsPath(this.credentialsDataDir);
     const credentials = await readJsonFile<Credentials>(credentialsPath, DEFAULT_CREDENTIALS);
 
     return {
@@ -767,8 +844,8 @@ export class SettingsService {
    * @returns Promise resolving to complete updated Credentials object
    */
   async updateCredentials(updates: Partial<Credentials>): Promise<Credentials> {
-    await ensureDataDir(this.dataDir);
-    const credentialsPath = getCredentialsPath(this.dataDir);
+    await ensureDataDir(this.credentialsDataDir);
+    const credentialsPath = getCredentialsPath(this.credentialsDataDir);
 
     const current = await this.getCredentials();
     const updated: Credentials = {
@@ -841,7 +918,7 @@ export class SettingsService {
    * @returns Promise resolving to true if {dataDir}/credentials.json exists
    */
   async hasCredentials(): Promise<boolean> {
-    const credentialsPath = getCredentialsPath(this.dataDir);
+    const credentialsPath = getCredentialsPath(this.credentialsDataDir);
     return fileExists(credentialsPath);
   }
 
@@ -1202,6 +1279,13 @@ export class SettingsService {
    */
   getDataDir(): string {
     return this.dataDir;
+  }
+
+  /**
+   * Directory where credentials.json is stored (may differ from getDataDir() for per-user keys).
+   */
+  getCredentialsDataDir(): string {
+    return this.credentialsDataDir;
   }
 
   /**

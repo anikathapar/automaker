@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { createRootRoute, Outlet, useLocation } from '@tanstack/react-router';
 import { useEffect, useState, useCallback, useDeferredValue, useRef } from 'react';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -13,7 +13,6 @@ import {
 import { useAppStore, getStoredTheme, type ThemeMode } from '@/store/app-store';
 import { useSetupStore } from '@/store/setup-store';
 import { useAuthStore } from '@/store/auth-store';
-import { getElectronAPI } from '@/lib/electron';
 import { initializeProject } from '@/lib/project-init';
 import {
   initApiKey,
@@ -42,6 +41,7 @@ import type { Project } from '@/lib/electron';
 import type { GlobalSettings } from '@automaker/types';
 import { syncUICache, restoreFromUICache } from '@/store/ui-cache-store';
 import { setItem } from '@/lib/storage';
+import { getRouter } from '@/utils/router-access';
 
 const logger = createLogger('RootLayout');
 const IS_DEV = import.meta.env.DEV;
@@ -214,7 +214,6 @@ function RootLayoutContent() {
 
   const setupComplete = useSetupStore((s) => s.setupComplete);
   const codexCliStatus = useSetupStore((s) => s.codexCliStatus);
-  const navigate = useNavigate();
   const [isMounted, setIsMounted] = useState(false);
   const [streamerPanelOpen, setStreamerPanelOpen] = useState(false);
   const authChecked = useAuthStore((s) => s.authChecked);
@@ -398,7 +397,7 @@ function RootLayoutContent() {
     const handleLoggedOut = () => {
       logger.warn('automaker:logged-out event received!');
       // Only update auth state — the centralized routing effect will handle
-      // navigation to /logged-out when it detects isAuthenticated is false
+      // navigation to /login when it detects isAuthenticated is false
       useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
     };
 
@@ -418,7 +417,7 @@ function RootLayoutContent() {
 
       // Navigate to login - the login page will detect server is offline and show appropriate UI
       if (location.pathname !== '/login' && location.pathname !== '/logged-out') {
-        navigate({ to: '/login' });
+        void getRouter().navigate({ to: '/login' });
       }
     };
 
@@ -426,7 +425,7 @@ function RootLayoutContent() {
     return () => {
       window.removeEventListener('automaker:server-offline', handleServerOffline);
     };
-  }, [location.pathname, navigate]);
+  }, [location.pathname]);
 
   // Initialize authentication
   // - Electron mode: Uses API key from IPC (header-based auth)
@@ -523,13 +522,15 @@ function RootLayoutContent() {
             try {
               const api = getHttpApiClient();
               const [sessionValid, settingsResult] = await Promise.all([
-                // verifySession() returns true (valid), false (401/403), or throws (transient).
+                // verifySession() returns true (valid), false (not authenticated), or throws (transient).
                 // Map throws → null so we can distinguish "definitively invalid" from "couldn't check".
                 verifySession().catch((err) => {
                   logger.debug('[FAST_HYDRATE] Background verify threw (transient):', err?.message);
                   return null;
                 }),
-                api.settings.getGlobal().catch(() => ({ success: false, settings: null }) as const),
+                api.settings
+                  .getGlobal({ suppressUnauthorizedEvent: true })
+                  .catch(() => ({ success: false, settings: null }) as const),
               ]);
 
               if (sessionValid === false) {
@@ -631,14 +632,14 @@ function RootLayoutContent() {
         // instead of waiting for session verification before fetching settings
         const api = getHttpApiClient();
         const [sessionValid, settingsResult] = await Promise.all([
-          // verifySession() returns true (valid), false (401/403), or throws (transient).
+          // verifySession() returns true (valid), false (not authenticated), or throws (transient).
           // Map throws → null (matching background verify behaviour) so transient
           // failures don't cause unnecessary logouts on cold start.
           verifySession().catch((error) => {
             logger.warn('Session verification threw (transient, keeping session):', error?.message);
             return null;
           }),
-          api.settings.getGlobal().catch((error) => {
+          api.settings.getGlobal({ suppressUnauthorizedEvent: true }).catch((error) => {
             logger.warn('Settings fetch failed during parallel init:', error);
             return { success: false, settings: null } as const;
           }),
@@ -740,7 +741,7 @@ function RootLayoutContent() {
             }
 
             // If we can't load settings, we must NOT start syncing defaults to the server.
-            // Only update auth state — the routing effect handles navigation to /logged-out.
+            // Only update auth state — the routing effect handles navigation to /login.
             // Calling navigate() here AND in the routing effect causes duplicate navigations
             // that can trigger React error #185 (maximum update depth exceeded) on cold start.
             useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
@@ -749,7 +750,7 @@ function RootLayoutContent() {
           }
         } else {
           // Session is definitively invalid (server returned 401/403) - treat as not authenticated.
-          // Only update auth state — the routing effect handles navigation to /logged-out.
+          // Only update auth state — the routing effect handles navigation to /login.
           // Calling navigate() here AND in the routing effect causes duplicate navigations
           // that can trigger React error #185 (maximum update depth exceeded) on cold start.
           useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
@@ -759,7 +760,7 @@ function RootLayoutContent() {
       } catch (error) {
         logger.error('Failed to initialize auth:', error);
         // On error, treat as not authenticated.
-        // Only update auth state — the routing effect handles navigation to /logged-out.
+        // Only update auth state — the routing effect handles navigation to /login.
         // Calling navigate() here AND in the routing effect causes duplicate navigations
         // that can trigger React error #185 (maximum update depth exceeded) on cold start.
         useAuthStore.getState().setAuthState({ isAuthenticated: false, authChecked: true });
@@ -778,7 +779,7 @@ function RootLayoutContent() {
   // This ensures a unified flow across all modes (Electron, web, external server)
 
   // Routing rules (ALL modes - unified flow):
-  // - If not authenticated: force /logged-out (even /setup is protected)
+  // - If not authenticated: force /login (even /setup is protected). /logged-out remains a valid route for bookmarks.
   // - If authenticated but setup incomplete: force /setup
   // - If authenticated and setup complete: allow access to app
   useEffect(() => {
@@ -796,16 +797,16 @@ function RootLayoutContent() {
       return;
     }
 
-    // Unauthenticated -> force /logged-out (but allow /login so user can authenticate)
+    // Unauthenticated -> force /login (sign-in form). Allow /logged-out for explicit “logged out” screen.
     if (!isAuthenticated) {
-      logger.warn('Not authenticated, redirecting to /logged-out. Auth state:', {
+      logger.warn('Not authenticated, redirecting to /login. Auth state:', {
         authChecked,
         isAuthenticated,
         settingsLoaded,
         currentPath: location.pathname,
       });
-      if (location.pathname !== '/logged-out' && location.pathname !== '/login') {
-        navigate({ to: '/logged-out' });
+      if (location.pathname !== '/login' && location.pathname !== '/logged-out') {
+        void getRouter().navigate({ to: '/login', replace: true });
       }
       return;
     }
@@ -816,15 +817,15 @@ function RootLayoutContent() {
 
     // Authenticated -> determine whether setup is required
     if (!setupComplete && location.pathname !== '/setup') {
-      navigate({ to: '/setup' });
+      void getRouter().navigate({ to: '/setup' });
       return;
     }
 
     // Setup complete but user is still on /setup -> go to dashboard
     if (setupComplete && location.pathname === '/setup') {
-      navigate({ to: '/dashboard' });
+      void getRouter().navigate({ to: '/dashboard' });
     }
-  }, [authChecked, isAuthenticated, settingsLoaded, setupComplete, location.pathname, navigate]);
+  }, [authChecked, isAuthenticated, settingsLoaded, setupComplete, location.pathname]);
 
   // Fallback: If auth is checked and authenticated but settings not loaded,
   // it means login-view or another component set auth state before __root.tsx's
@@ -910,13 +911,13 @@ function RootLayoutContent() {
       }
       if (currentProject) {
         // Project is selected, go to board
-        navigate({ to: '/board' });
+        void getRouter().navigate({ to: '/board' });
       } else {
         // No project selected, go to dashboard
-        navigate({ to: '/dashboard' });
+        void getRouter().navigate({ to: '/dashboard' });
       }
     }
-  }, [isMounted, currentProject, isRootRoute, navigate, shouldAutoOpen, settingsLoaded]);
+  }, [isMounted, currentProject, isRootRoute, shouldAutoOpen, settingsLoaded]);
 
   // Auto-open the most recent project on startup
   useEffect(() => {
@@ -933,7 +934,7 @@ function RootLayoutContent() {
         if (!initResult.success) {
           logger.warn('Auto-open project failed:', initResult.error);
           if (isRootRoute) {
-            navigate({ to: '/dashboard' });
+            void getRouter().navigate({ to: '/dashboard' });
           }
           return;
         }
@@ -947,12 +948,12 @@ function RootLayoutContent() {
         }
 
         if (isRootRoute) {
-          navigate({ to: '/board' });
+          void getRouter().navigate({ to: '/board' });
         }
       } catch (error) {
         logger.error('Auto-open project crashed:', error);
         if (isRootRoute) {
-          navigate({ to: '/dashboard' });
+          void getRouter().navigate({ to: '/dashboard' });
         }
       } finally {
         setAutoOpenStatus(AUTO_OPEN_STATUS.done);
@@ -965,7 +966,6 @@ function RootLayoutContent() {
     autoOpenStatus,
     autoOpenCandidate,
     currentProject,
-    navigate,
     upsertAndSetCurrentProject,
     isRootRoute,
   ]);
@@ -1080,8 +1080,7 @@ function RootLayoutContent() {
     );
   }
 
-  // Redirect to logged-out if not authenticated (ALL modes - unified flow)
-  // Show loading state while navigation is in progress
+  // Not authenticated: routing effect sends user to /login; show loading while that navigation runs
   if (!isAuthenticated) {
     return (
       <main className="flex h-full items-center justify-center" data-testid="app-container">

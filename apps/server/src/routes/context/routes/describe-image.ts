@@ -18,7 +18,7 @@ import { resolvePhaseModel } from '@automaker/model-resolver';
 import { simpleQuery } from '../../../providers/simple-query-service.js';
 import * as secureFs from '../../../lib/secure-fs.js';
 import * as path from 'path';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import {
   getAutoLoadClaudeMdSetting,
   getPromptCustomization,
@@ -208,11 +208,11 @@ function mapDescribeImageError(rawMessage: string | undefined): {
  * Uses the provider abstraction with multi-part content blocks to include the image (base64),
  * matching the agent runner behavior.
  *
- * @param settingsService - Optional settings service for loading autoLoadClaudeMd setting
+ * @param resolveSettingsService - Per-request settings (scoped credentials when logged in)
  * @returns Express request handler for image description
  */
 export function createDescribeImageHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     const requestId = `describe-image-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -225,6 +225,8 @@ export function createDescribeImageHandler(
     logger.info(`[${requestId}] body=${JSON.stringify(req.body)}`);
 
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { imagePath } = req.body as DescribeImageRequestBody;
 
       // Validate required fields

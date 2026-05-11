@@ -12,7 +12,7 @@ import { resolveModelString } from '@automaker/model-resolver';
 import { CLAUDE_MODEL_MAP, type ThinkingLevel } from '@automaker/types';
 import { getAppSpecPath } from '@automaker/platform';
 import { simpleQuery } from '../../../providers/simple-query-service.js';
-import type { SettingsService } from '../../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../../lib/user-data.js';
 import { getPromptCustomization, getProviderByModelId } from '../../../lib/settings-helpers.js';
 import { FeatureLoader } from '../../../services/feature-loader.js';
 import * as secureFs from '../../../lib/secure-fs.js';
@@ -125,14 +125,16 @@ async function buildProjectContext(projectPath: string): Promise<string | null> 
 /**
  * Create the enhance request handler
  *
- * @param settingsService - Optional settings service for loading custom prompts
+ * @param resolveSettingsService - Per-request settings (scoped credentials when logged in)
  * @returns Express request handler for text enhancement
  */
 export function createEnhanceHandler(
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): (req: Request, res: Response) => Promise<void> {
   return async (req: Request, res: Response): Promise<void> => {
     try {
+      const settingsService = resolveSettingsService?.(req);
+
       const { originalText, enhancementMode, model, thinkingLevel, projectPath } =
         req.body as EnhanceRequestBody;
 

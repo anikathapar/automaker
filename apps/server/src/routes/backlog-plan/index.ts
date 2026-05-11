@@ -10,22 +10,26 @@ import { createStopHandler } from './routes/stop.js';
 import { createStatusHandler } from './routes/status.js';
 import { createApplyHandler } from './routes/apply.js';
 import { createClearHandler } from './routes/clear.js';
-import type { SettingsService } from '../../services/settings-service.js';
+import type { SettingsServiceFactory } from '../../lib/user-data.js';
 
 export function createBacklogPlanRoutes(
   events: EventEmitter,
-  settingsService?: SettingsService
+  resolveSettingsService?: SettingsServiceFactory
 ): Router {
   const router = Router();
 
   router.post(
     '/generate',
     validatePathParams('projectPath'),
-    createGenerateHandler(events, settingsService)
+    createGenerateHandler(events, resolveSettingsService)
   );
   router.post('/stop', createStopHandler());
   router.get('/status', validatePathParams('projectPath'), createStatusHandler());
-  router.post('/apply', validatePathParams('projectPath'), createApplyHandler(settingsService));
+  router.post(
+    '/apply',
+    validatePathParams('projectPath'),
+    createApplyHandler(resolveSettingsService)
+  );
   router.post('/clear', validatePathParams('projectPath'), createClearHandler());
 
   return router;

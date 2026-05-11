@@ -261,7 +261,12 @@ function isCodeAsset(url) {
   const path = url.pathname;
   const isScriptOrStyle = /\.(m?js|css|tsx?)$/.test(path);
   if (!isScriptOrStyle) return false;
-  return path.startsWith('/assets/') || path.startsWith('/src/');
+  // Never treat Vite dev paths as cache-first code: stale /src transforms + fresh
+  // .vite/deps pre-bundles = two React copies → "Invalid hook call" / null useState.
+  if (path.startsWith('/src/') || path.startsWith('/@') || path.startsWith('/node_modules/')) {
+    return false;
+  }
+  return path.startsWith('/assets/');
 }
 
 /**
